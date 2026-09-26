@@ -271,6 +271,9 @@ a.tile:active .tile-img { transform: scale(var(--press-scale)); transition: tran
 .section-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-3); }
 .breaks { min-width: 0; }
 .break-list { border-top: 1px solid var(--hairline); }
+.no-breaks { border-top: 1px solid var(--hairline); padding-top: var(--sp-3); display: grid; gap: var(--sp-2); }
+.no-breaks-lead { margin: 0; color: var(--text); font-size: var(--fs-body); }
+.no-breaks-parts { margin: 0; padding: 0; list-style: none; color: var(--text-2); font-size: var(--fs-meta); display: grid; gap: var(--sp-1); }
 .break-list button {
   display: grid;
   grid-template-columns: 3.75rem minmax(0, 1fr);

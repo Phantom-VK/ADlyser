@@ -164,4 +164,5 @@ def build_debug(
         llm_stats=llm_stats,
         loops=loops,
         wall_s=wall_s,
+        min_break_score=min_break_score,
     )

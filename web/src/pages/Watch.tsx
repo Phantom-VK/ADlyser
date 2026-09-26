@@ -8,6 +8,7 @@ import { Timeline } from "../components/Timeline";
 import { TracePanel } from "../components/TracePanel";
 import { clock, count, titleOf } from "../lib/format";
 import { STATUS_ORDER } from "../lib/status";
+import { whyNoBreaks } from "../lib/why";
 import { parseVmap, type AdBreak } from "../lib/vmap";
 import type { AddedBrand, CandidateStatus, DebugReport, JobStatus, LibraryItem, NodeEvent } from "../types";
 
@@ -239,7 +240,7 @@ export function Watch({ name, initialT, onSections }: Props) {
                   <span className="muted tabular">{count(placed.length, "break")}</span>
                 </div>
                 {placed.length === 0 ? (
-                  <p className="muted">No break is safe to place in this episode.</p>
+                  <NoBreaks report={report} />
                 ) : (
                   <ol className="break-list">
                     {placed.map((b) => (
@@ -314,5 +315,22 @@ export function Watch({ name, initialT, onSections }: Props) {
         </>
       )}
     </main>
+  );
+}
+
+/** Zero breaks is a result, so say why. */
+function NoBreaks({ report }: { report: DebugReport }) {
+  const why = whyNoBreaks(report);
+  return (
+    <div className="no-breaks">
+      <p className="no-breaks-lead">No break placed. {why.lead}</p>
+      <ul className="no-breaks-parts">
+        {why.parts.map((p) => (
+          <li key={p} className="tabular">
+            {p}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

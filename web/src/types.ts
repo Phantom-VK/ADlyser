@@ -111,6 +111,8 @@ export interface DebugReport {
   brands: Brand[];
   loops: number;
   wall_s: number;
+  /** The break-score threshold; absent in reports made before it was recorded. */
+  min_break_score?: number | null;
   /** Per prompt: `requests` are real model calls, `cached` are cache hits. */
   llm_stats: Record<string, Record<string, number>>;
 }
