@@ -31,7 +31,7 @@ from adlyser.log import get_logger
 from adlyser.perception.measure import measure_signals
 from adlyser.rules.candidates import find_candidates
 from adlyser.rules.pacing import can_add, select_breaks
-from adlyser.rules.safety import apply_sweep, blocking_tags
+from adlyser.rules.safety import apply_sweep, blocking_scenes, blocking_tags
 from adlyser.rules.scenes import build_scenes, make_stretches, scenes_around
 from adlyser.schemas import (
     AdBreakSpec,
@@ -68,6 +68,7 @@ class State(TypedDict, total=False):
     brands: list[Brand]
     plans: list[BreakPlan]
     excluded: list[float]
+    excluded_reasons: dict[float, str]
     sweeps: dict[int, SweepRecord]
     loops: int
     repace: bool
@@ -166,7 +167,7 @@ class Pipeline:
             for c, v in zip(cands, verdicts, strict=True)
             if v.is_scene_change
         ]
-        return {"base_scenes": scenes, "scenes": scenes, "options": options, "plans": [], "excluded": [],
+        return {"base_scenes": scenes, "scenes": scenes, "options": options, "plans": [], "excluded": [], "excluded_reasons": {},
                 "sweeps": {}, "loops": 0, "repace": False}  # fmt: skip
 
     async def pace(self, state: State) -> State:
@@ -185,7 +186,11 @@ class Pipeline:
             plans.append(BreakPlan(candidate=o.candidate, break_score=o.break_score, before=before, after=after,
                                    status="needs_brand"))  # fmt: skip
         chosen_times = {p.candidate.t for p in plans}
-        history = [p for p in state["plans"] if p.status == "dropped" and p.candidate.t not in chosen_times]
+        history = [
+            p
+            for p in state["plans"]
+            if p.status in ("dropped", "blocked") and p.candidate.t not in chosen_times
+        ]
         return {"plans": [*plans, *history], "repace": False}
 
     async def sweep(self, state: State) -> State:
@@ -282,6 +287,7 @@ class Pipeline:
         promo slot if there is room, once the loops are used up.
         """
         excluded, plans = list(state["excluded"]), list(state["plans"])
+        scenes, reasons = state["scenes"], dict(state["excluded_reasons"])
         exhausted = state["loops"] >= self.settings.reviewer.max_loops
         repace = retry_brand = False
         for i, p in enumerate(plans):
@@ -292,6 +298,15 @@ class Pipeline:
             if p.status in ("retry_candidate", "blocked") and not exhausted and t not in excluded:
                 excluded.append(t)
                 repace = True
+                if p.status == "blocked" and p.choice is not None and p.choice.kind == "blocked":
+                    culprits = blocking_scenes(state["brands"], scenes[p.before], scenes[p.after])
+                    for other in state["options"]:
+                        u = other.candidate.t
+                        if u not in excluded and set(scenes_around(scenes, u)) & set(culprits):
+                            excluded.append(u)
+                            reasons[u] = (
+                                f"touches scene {culprits[0]}, which blocks every brand (break {t:.0f}s)"
+                            )
             elif p.status == "retry_brand":
                 if exhausted:
                     plans[i] = p.model_copy(
@@ -299,7 +314,7 @@ class Pipeline:
                     )
                 else:
                     retry_brand = True
-        return {"plans": plans, "excluded": excluded, "repace": repace,
+        return {"plans": plans, "excluded": excluded, "excluded_reasons": reasons, "repace": repace,
                 "loops": state["loops"] + 1 if repace or retry_brand else state["loops"]}  # fmt: skip
 
     async def finalize(self, state: State) -> State:
@@ -361,7 +376,7 @@ class Pipeline:
             video=perception.video, duration_s=perception.duration_s, funnel=found.funnel,
             candidates=found.candidates, verdicts=state["verdicts"], stretches=state["stretches"],
             analyses=state["analyses"], traces=state["traces"], base_scenes=state["base_scenes"],
-            scenes=state["scenes"], sweeps=state["sweeps"], plans=state["plans"], vetoed_times=state["excluded"],
+            scenes=state["scenes"], sweeps=state["sweeps"], plans=state["plans"], excluded_reasons=state["excluded_reasons"],
             brands=state["brands"], break_ids=break_ids, min_break_score=st.pacing.min_break_score,
             llm_stats=stats, loops=state["loops"], wall_s=round(time.perf_counter() - self.started, 1),
         )  # fmt: skip

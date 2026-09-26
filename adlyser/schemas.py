@@ -310,6 +310,8 @@ class CandidateRecord(BaseModel):
     boundary_reason: str
     status: Literal["not_scene_change", "below_min_score", "pacing_rejected", "selected", "vetoed", "blocked"]
     reason: str
+    review: ReviewVerdict | None = None
+    review_trace: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class StretchRecord(BaseModel):

@@ -91,3 +91,19 @@ def validate_sweep(
     unsure = [e for e in result.unsure_tags if _cited(e, n_frames) and e.tag not in seen_tags]
     dropped = [e for e in [*result.safety_tags, *result.unsure_tags] if not _cited(e, n_frames)]
     return seen, unsure, dropped
+
+
+def blocking_scenes(brands: list[Brand], before: Scene, after: Scene) -> list[int]:
+    """Indices of the scenes around a break that block EVERY brand on their own (or are unknown).
+
+    :param brands: the catalogue.
+    :param before: the scene before the break.
+    :param after: the scene after the break.
+    :return: the culprit scene indices (may be empty when only the union of both scenes blocks).
+    """
+
+    def blocks_all(scene: Scene) -> bool:
+        seen = set(scene.safety_tags)
+        return scene.unknown or (bool(brands) and all(set(b.negative_tags) & seen for b in brands))
+
+    return [s.index for s in (before, after) if blocks_all(s)]

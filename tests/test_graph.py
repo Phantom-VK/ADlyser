@@ -73,6 +73,8 @@ def state(plans=None, scenes=None, loops=0, excluded=(), sweeps=None):
         "scenes": scenes or [scene(0), scene(1), scene(2)],
         "sweeps": sweeps or {},
         "excluded": list(excluded),
+        "excluded_reasons": {},
+        "options": [],
         "loops": loops,
         "repace": False,
         "brands": [FOOD, RIDES],
@@ -280,3 +282,58 @@ async def test_pace_picks_the_next_best_option_once_a_break_point_is_excluded():
         1,
         2,
     )
+
+
+# ---- neighbours of an all-blocking scene ----------------------------------------------------
+
+
+def all_blocking_scenes():
+    """Scenes 0|1|2|3 with boundaries at 500, 1000, 1500. Scene 1 (violence) blocks every brand."""
+    return [scene(0), scene(1, {T.VIOLENCE}), scene(2), scene(3)]
+
+
+VIOLENT = Brand(id="v", name="V", category="c", tagline="t", description="d", negative_tags=[T.VIOLENCE],
+                negative_contexts_raw=[])  # fmt: skip
+OPTIONS = [BreakOption(candidate=cand(t), break_score=s) for t, s in [(500, 0.9), (1000, 0.85), (1500, 0.8)]]
+
+
+async def test_options_touching_an_all_blocking_scene_are_excluded_together_and_neither_is_retried():
+    st = state([plan(500, "blocked", "blocked", before=0, after=1)], scenes=all_blocking_scenes())
+    st["brands"], st["options"] = [VIOLENT], OPTIONS
+    out = await pipeline().settle(st)
+    assert set(out["excluded"]) == {500, 1000} and 1500 not in out["excluded"]
+    assert "scene 1" in out["excluded_reasons"][1000] and out["repace"]
+
+
+async def test_pacing_then_picks_a_third_option_elsewhere():
+    st = state([plan(500, "blocked", "blocked", before=0, after=1)], scenes=all_blocking_scenes())
+    st["brands"], st["options"] = [VIOLENT], OPTIONS
+    settled = await pipeline().settle(st)
+    st.update(settled)
+    st["perception"] = SimpleNamespace(speech=[], duration_s=3600.0)
+    out = await pipeline().pace(st)
+    live = [p for p in out["plans"] if p.status == "needs_brand"]
+    assert [p.candidate.t for p in live] == [1500]
+    assert [p.candidate.t for p in out["plans"] if p.status == "blocked"] == [
+        500
+    ]  # kept for the promo fallback
+
+
+async def test_a_break_blocked_only_by_the_union_of_two_scenes_excludes_just_itself():
+    brands = [Brand(id="a", name="A", category="c", tagline="t", description="d", negative_tags=[T.VIOLENCE],
+                    negative_contexts_raw=[]),
+              Brand(id="b", name="B", category="c", tagline="t", description="d", negative_tags=[T.ALCOHOL],
+                    negative_contexts_raw=[])]  # fmt: skip
+    scenes = [scene(0, {T.VIOLENCE}), scene(1, {T.ALCOHOL}), scene(2), scene(3)]
+    st = state([plan(500, "blocked", "blocked", before=0, after=1)], scenes=scenes)
+    st["brands"], st["options"] = brands, OPTIONS
+    out = await pipeline().settle(st)
+    assert out["excluded"] == [500]
+
+
+async def test_a_no_fit_break_does_not_exclude_its_neighbours():
+    p = plan(500, "blocked", "no_fit", before=0, after=1)
+    st = state([p], scenes=all_blocking_scenes())
+    st["brands"], st["options"] = [VIOLENT], OPTIONS
+    out = await pipeline().settle(st)
+    assert out["excluded"] == [500]

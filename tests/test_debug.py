@@ -7,6 +7,7 @@ from adlyser.schemas import (
     BreakPlan,
     Candidate,
     Funnel,
+    ReviewVerdict,
     SafetyTag,
     Scene,
     ShortlistEntry,
@@ -37,7 +38,7 @@ FOOD = Brand(id="food", name="Food", category="c", tagline="t", description="d",
              negative_contexts_raw=["death"])  # fmt: skip
 
 
-def report(plans, verdicts, cands, vetoed=()):
+def report(plans, verdicts, cands, excluded=None):
     base = [scene(0), scene(1), scene(2)]
     swept = [scene(0), scene(1, {T.DEATH_GRIEF}), scene(2)]
     return build_debug(
@@ -45,7 +46,7 @@ def report(plans, verdicts, cands, vetoed=()):
         stretches=[Stretch(index=i, start=i * 100, end=(i + 1) * 100) for i in range(3)],
         analyses=[ANALYSIS] * 3, traces=[[], [], []], base_scenes=base, scenes=swept,
         sweeps={1: SweepRecord(safety_tags=[T.DEATH_GRIEF], unsure_tags=[], evidence="a funeral insert", ok=True, full_coverage=True, frames=9)},
-        plans=plans, vetoed_times=list(vetoed), brands=[FOOD], break_ids={100: "break-1"},
+        plans=plans, excluded_reasons=excluded or {}, brands=[FOOD], break_ids={100: "break-1"},
         min_break_score=0.5, llm_stats={}, loops=1, wall_s=1.0,
     )  # fmt: skip
 
@@ -76,10 +77,43 @@ def test_every_candidate_gets_a_status_and_reason():
     assert all(c.reason for c in out.candidates)
 
 
-def test_a_vetoed_candidate_is_reported_as_vetoed_with_the_reviewer_reason():
-    out = report([plan(100, "dropped", "food")], [verdict()], [cand(100)], vetoed=[100])
-    assert out.candidates[0].status == "vetoed"
+def test_a_vetoed_candidate_carries_the_reviewers_reason_and_tool_calls():
+    verdict_ = ReviewVerdict(
+        decision="veto", reason="a hospital bed is visible at 12:03", retry="next_candidate"
+    )
+    vetoed = plan(100, "dropped", "food").model_copy(
+        update={
+            "review": verdict_,
+            "review_trace": [{"tool": "look_closer", "args": {"t0": 720, "t1": 740, "n": 3}, "frames": 3}],
+            "reason": "reviewer vetoed: a hospital bed is visible at 12:03; trying the next break point",
+        }
+    )
+    out = report([vetoed], [verdict()], [cand(100)])
+    c = out.candidates[0]
+    assert c.status == "vetoed" and "hospital bed" in c.reason
+    assert (
+        c.review.reason == "a hospital bed is visible at 12:03" and c.review_trace[0]["tool"] == "look_closer"
+    )
     assert out.breaks[0].outcome == "dropped"
+
+
+def test_a_blocked_and_excluded_break_is_reported_as_blocked_not_vetoed():
+    blocked = plan(100, "blocked", None, blocked=["violence"]).model_copy(
+        update={"reason": "no brand for this break: every brand is blocked"}
+    )
+    out = report([blocked], [verdict()], [cand(100)])
+    assert out.candidates[0].status == "blocked" and out.candidates[0].review is None
+
+
+def test_a_neighbour_excluded_with_the_all_blocking_scene_is_blocked_with_that_reason():
+    out = report(
+        [],
+        [verdict(), verdict()],
+        [cand(100), cand(200)],
+        excluded={200: "touches scene 1, which blocks every brand"},
+    )
+    assert out.candidates[1].status == "blocked" and "scene 1" in out.candidates[1].reason
+    assert out.candidates[0].status == "pacing_rejected"
 
 
 def test_break_record_shows_sweep_added_tags_and_the_blocking_tag():

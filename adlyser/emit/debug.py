@@ -23,20 +23,23 @@ def _candidate_record(
     cand: Candidate,
     verdict: BoundaryVerdict,
     plan: BreakPlan | None,
-    vetoed: bool,
+    excluded_reason: str | None,
     min_break_score: float,
 ) -> CandidateRecord:
-    """Classify one candidate: not a scene change, too weak, rejected by pacing, selected or vetoed."""
+    """Classify one candidate: not a scene change, too weak, rejected by pacing, selected, vetoed or blocked."""
+    review, trace = (plan.review, plan.review_trace) if plan else (None, [])
     if not verdict.is_scene_change:
         status, reason = "not_scene_change", verdict.reason
     elif verdict.break_score < min_break_score:
         status, reason = "below_min_score", f"break_score {verdict.break_score:.2f} below {min_break_score}"
-    elif plan is not None and plan.status != "dropped":
+    elif plan is not None and plan.status in ("approved", "promo"):
         status, reason = "selected", plan.reason
-    elif plan is not None and plan.choice is not None and plan.choice.kind != "brand":
+    elif plan is not None and plan.review is not None and plan.review.decision == "veto":
+        status, reason = "vetoed", plan.reason
+    elif plan is not None:
         status, reason = "blocked", plan.reason
-    elif vetoed or plan is not None:
-        status, reason = "vetoed", plan.reason if plan else "the reviewer vetoed this break point"
+    elif excluded_reason is not None:
+        status, reason = "blocked", excluded_reason
     else:
         status, reason = "pacing_rejected", "not chosen by the pacing solver (gap, hourly or ad-load cap)"
     return CandidateRecord(
@@ -48,6 +51,8 @@ def _candidate_record(
         boundary_reason=verdict.reason,
         status=status,
         reason=reason,
+        review=review,
+        review_trace=trace,
     )
 
 
@@ -65,7 +70,7 @@ def build_debug(
     scenes: list[Scene],
     sweeps: dict[int, SweepRecord],
     plans: list[BreakPlan],
-    vetoed_times: list[float],
+    excluded_reasons: dict[float, str],
     brands: list[Brand],
     break_ids: dict[float, str],
     min_break_score: float,
@@ -87,7 +92,7 @@ def build_debug(
     :param scenes: scenes after the safety sweep.
     :param sweeps: sweep results by scene index.
     :param plans: every planned break, including dropped ones.
-    :param vetoed_times: candidate times the reviewer excluded.
+    :param excluded_reasons: why candidate times were excluded from pacing without a plan of their own.
     :param brands: the catalogue.
     :param break_ids: manifest break id by candidate time.
     :param min_break_score: pacing threshold, for the candidate status.
@@ -99,7 +104,7 @@ def build_debug(
     by_t = {p.candidate.t: p for p in plans}
     names = {b.id: b.name for b in brands}
     records = [
-        _candidate_record(c, v, by_t.get(c.t), c.t in vetoed_times, min_break_score)
+        _candidate_record(c, v, by_t.get(c.t), excluded_reasons.get(c.t), min_break_score)
         for c, v in zip(candidates, verdicts, strict=True)
     ]
     scene_records = []

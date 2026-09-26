@@ -4,6 +4,7 @@ from adlyser.rules.safety import (
     UNKNOWN_SCENE,
     add_sweep_tags,
     apply_sweep,
+    blocking_scenes,
     blocking_tags,
     split_brands,
     validate_sweep,
@@ -207,3 +208,20 @@ def test_an_uncited_tag_never_reaches_the_scene():
     seen, unsure, _ = validate_sweep(result, 8)
     record = sweep([e.tag for e in seen], [e.tag for e in unsure])
     assert blocking_tags(FOOD, apply_sweep(scene(), record), scene()) == []
+
+
+def test_a_scene_that_blocks_every_brand_alone_is_a_culprit():
+    every = [brand("a", [T.VIOLENCE]), brand("b", [T.VIOLENCE, T.ALCOHOL])]
+    assert blocking_scenes(every, scene({T.VIOLENCE}, index=3), scene(index=4)) == [3]
+    assert blocking_scenes(every, scene(index=3), scene({T.VIOLENCE}, index=4)) == [4]
+
+
+def test_an_unknown_scene_is_a_culprit_and_a_scene_that_blocks_only_some_brands_is_not():
+    brands = [brand("a", [T.VIOLENCE]), brand("b", [T.ALCOHOL])]
+    assert blocking_scenes(brands, scene(unknown=True, index=1), scene(index=2)) == [1]
+    assert blocking_scenes(brands, scene({T.VIOLENCE}, index=1), scene(index=2)) == []
+
+
+def test_two_scenes_that_only_block_every_brand_together_name_no_culprit():
+    brands = [brand("a", [T.VIOLENCE]), brand("b", [T.ALCOHOL])]
+    assert blocking_scenes(brands, scene({T.VIOLENCE}, index=1), scene({T.ALCOHOL}, index=2)) == []
