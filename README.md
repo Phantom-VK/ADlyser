@@ -15,6 +15,17 @@ ADlyser watches an episode and answers three questions for every possible ad bre
 
 It outputs an IAB **VMAP 1.0** manifest (inline VAST 3.0), a **debug JSON** explaining every decision, and a **web player** that cuts to the ad and resumes.
 
+## Architecture
+
+<p align="center">
+  <img src="docs/pipeline.svg" alt="The ADlyser pipeline: a LangGraph state graph from catalogue and measure through the AI judgement nodes to the brand-safety block and the VMAP emitter, with the reviewer's two veto loops back to pacing and matching." width="820">
+</p>
+
+The diagram is generated from the compiled graph by `uv run python -m scripts.graph_image`, so it cannot
+drift from the code: the script fails if a node is added or renamed. Violet nodes are where a model
+decides, grey are where code enforces, and the dashed edges are the reviewer's veto loops — a veto sends
+the break back for another brand, or sends the pacing solver to the next-best break point.
+
 ## Approach: measure with tools, decide with AI, guard with code
 
 1. **Measure, pause-first** (deterministic): start from the audio. Find silences (Silero VAD), keep only those that contain a camera cut or fade to black (PySceneDetect, ffmpeg), and optionally transcribe the dialogue (Groq `whisper-large-v3`). Mid-sentence cuts are impossible by construction.

@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="1246" viewBox="0 0 1300 1246" font-family="system-ui, -apple-system, Segoe UI, Roboto, DejaVu Sans, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3d4455"/></marker>
+    <marker id="arrow-back" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b7ad6"/></marker>
+  </defs>
+  <rect width="1300" height="1246" fill="#0b0d12"/>
+  <text x="150" y="58" fill="#f2f4f8" font-size="30" font-weight="650" letter-spacing="-0.6">ADlyser · ad-break pipeline</text>
+  <text x="150" y="84" fill="#8b919e" font-size="14.5">LangGraph state graph — measure with tools, decide with AI, guard with code</text>
+
+  <g>
+    <rect x="150" y="167" width="235" height="160" rx="10"
+          fill="#11141b" stroke="#222834" stroke-width="1"/>
+    <text x="268" y="252" fill="#8b919e" font-size="12"
+          font-weight="600" letter-spacing="1.6" text-anchor="middle">INPUT</text>
+  </g>
+
+  <g>
+    <rect x="150" y="327" width="235" height="160" rx="10"
+          fill="#11141b" stroke="#222834" stroke-width="1"/>
+    <text x="268" y="412" fill="#8b919e" font-size="12"
+          font-weight="600" letter-spacing="1.6" text-anchor="middle">JUDGEMENT · AI</text>
+  </g>
+
+  <g>
+    <rect x="150" y="487" width="235" height="160" rx="10"
+          fill="#11141b" stroke="#222834" stroke-width="1"/>
+    <text x="268" y="572" fill="#8b919e" font-size="12"
+          font-weight="600" letter-spacing="1.6" text-anchor="middle">SCENES + PACING</text>
+  </g>
+
+  <g>
+    <rect x="150" y="647" width="235" height="240" rx="10"
+          fill="#11141b" stroke="#222834" stroke-width="1"/>
+    <text x="268" y="772" fill="#8b919e" font-size="12"
+          font-weight="600" letter-spacing="1.6" text-anchor="middle">BRAND SAFETY</text>
+  </g>
+
+  <g>
+    <rect x="150" y="887" width="235" height="240" rx="10"
+          fill="#11141b" stroke="#222834" stroke-width="1"/>
+    <text x="268" y="1012" fill="#8b919e" font-size="12"
+          font-weight="600" letter-spacing="1.6" text-anchor="middle">EMIT</text>
+  </g>
+
+  <g>
+    <rect x="588" y="110" width="104" height="30" rx="15" fill="none"
+          stroke="#3d4455" stroke-width="1.4"/>
+    <text x="640" y="130" fill="#8b919e" font-size="13" font-weight="600"
+          letter-spacing="1.2" text-anchor="middle">START</text>
+  </g>
+  <line x1="640" y1="140" x2="640" y2="168" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="398" x2="640" y2="408" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="478" x2="640" y2="488" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="238" x2="640" y2="248" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="1038" x2="640" y2="1048" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="798" x2="640" y2="808" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="318" x2="640" y2="328" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="638" x2="640" y2="648" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="878" x2="640" y2="888" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="558" x2="640" y2="568" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="640" y1="718" x2="640" y2="728" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <g>
+    <path d="M 855 927 H 1041 Q 1055 927 1055 907
+             V 627 Q 1055 607 1041 607 H 863"
+          fill="none" stroke="#8b7ad6" stroke-width="1.5" stroke-dasharray="5 4"
+          marker-end="url(#arrow-back)"/>
+    <text x="1065" y="767" fill="#8b7ad6" font-size="12.5">another break point</text>
+  </g>
+
+  <g>
+    <path d="M 855 927 H 901 Q 915 927 915 907
+             V 707 Q 915 687 901 687 H 863"
+          fill="none" stroke="#8b7ad6" stroke-width="1.5" stroke-dasharray="5 4"
+          marker-end="url(#arrow-back)"/>
+    <text x="925" y="807" fill="#8b7ad6" font-size="12.5">another brand</text>
+  </g>
+  <line x1="640" y1="958" x2="640" y2="968" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="425" y="176" width="430" height="62" rx="12"
+          fill="#191634" stroke="#4d3f92" stroke-width="1.25"/>
+    <circle cx="445" cy="197" r="4" fill="#a78bfa"/>
+    <text x="459" y="202" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">catalogue</text>
+    <text x="459" y="223" fill="#8b919e" font-size="12.5">any format → Brand schema + safety tags</text>
+  </g>
+
+  <g>
+    <rect x="425" y="256" width="430" height="62" rx="12"
+          fill="#161a22" stroke="#2b3242" stroke-width="1.25"/>
+    <circle cx="445" cy="277" r="4" fill="#5b6478"/>
+    <text x="459" y="282" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">measure</text>
+    <text x="459" y="303" fill="#8b919e" font-size="12.5">VAD · shot cuts · black frames → candidate pauses</text>
+  </g>
+
+  <g>
+    <rect x="425" y="336" width="430" height="62" rx="12"
+          fill="#191634" stroke="#4d3f92" stroke-width="1.25"/>
+    <circle cx="445" cy="357" r="4" fill="#a78bfa"/>
+    <text x="459" y="362" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">analyse</text>
+    <text x="459" y="383" fill="#8b919e" font-size="12.5">StretchAnalyst · vision · 1 call per stretch, parallel</text>
+  </g>
+
+  <g>
+    <rect x="425" y="416" width="430" height="62" rx="12"
+          fill="#191634" stroke="#4d3f92" stroke-width="1.25"/>
+    <circle cx="445" cy="437" r="4" fill="#a78bfa"/>
+    <text x="459" y="442" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">boundaries</text>
+    <text x="459" y="463" fill="#8b919e" font-size="12.5">BoundaryJudge · scene change? break score 0–1</text>
+  </g>
+
+  <g>
+    <rect x="425" y="496" width="430" height="62" rx="12"
+          fill="#161a22" stroke="#2b3242" stroke-width="1.25"/>
+    <circle cx="445" cy="517" r="4" fill="#5b6478"/>
+    <text x="459" y="522" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">scenes</text>
+    <text x="459" y="543" fill="#8b919e" font-size="12.5">merge stretches · safety tags = UNION</text>
+  </g>
+
+  <g>
+    <rect x="425" y="576" width="430" height="62" rx="12"
+          fill="#161a22" stroke="#2b3242" stroke-width="1.25"/>
+    <circle cx="445" cy="597" r="4" fill="#5b6478"/>
+    <text x="459" y="602" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">pace</text>
+    <text x="459" y="623" fill="#8b919e" font-size="12.5">DP solver · max Σ score s.t. gap, rate, ad load</text>
+  </g>
+
+  <g>
+    <rect x="425" y="656" width="430" height="62" rx="12"
+          fill="#191634" stroke="#4d3f92" stroke-width="1.25"/>
+    <circle cx="445" cy="677" r="4" fill="#a78bfa"/>
+    <text x="459" y="682" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">sweep</text>
+    <text x="459" y="703" fill="#8b919e" font-size="12.5">safety sweep of the whole scene · tags must cite frames</text>
+  </g>
+
+  <g>
+    <rect x="425" y="736" width="430" height="62" rx="12"
+          fill="#1b2130" stroke="#3f6b8a" stroke-width="1.25"/>
+    <circle cx="445" cy="757" r="4" fill="#5eead4"/>
+    <text x="459" y="762" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">match</text>
+    <text x="459" y="783" fill="#8b919e" font-size="12.5">bge-m3 shortlist → rerank · HARD BLOCK either side</text>
+  </g>
+
+  <g>
+    <rect x="425" y="816" width="430" height="62" rx="12"
+          fill="#191634" stroke="#4d3f92" stroke-width="1.25"/>
+    <circle cx="445" cy="837" r="4" fill="#a78bfa"/>
+    <text x="459" y="842" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">review</text>
+    <text x="459" y="863" fill="#8b919e" font-size="12.5">BreakReviewer · tools · approve | veto</text>
+  </g>
+
+  <g>
+    <rect x="425" y="896" width="430" height="62" rx="12"
+          fill="#161a22" stroke="#2b3242" stroke-width="1.25"/>
+    <circle cx="445" cy="917" r="4" fill="#5b6478"/>
+    <text x="459" y="922" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">settle</text>
+    <text x="459" y="943" fill="#8b919e" font-size="12.5">route: another break point, another brand, or on</text>
+  </g>
+
+  <g>
+    <rect x="425" y="976" width="430" height="62" rx="12"
+          fill="#161a22" stroke="#2b3242" stroke-width="1.25"/>
+    <circle cx="445" cy="997" r="4" fill="#5b6478"/>
+    <text x="459" y="1002" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">finalize</text>
+    <text x="459" y="1023" fill="#8b919e" font-size="12.5">no fit → promo · all blocked → drop the break</text>
+  </g>
+
+  <g>
+    <rect x="425" y="1056" width="430" height="62" rx="12"
+          fill="#161a22" stroke="#2b3242" stroke-width="1.25"/>
+    <circle cx="445" cy="1077" r="4" fill="#5b6478"/>
+    <text x="459" y="1082" fill="#e7e9ee" font-size="19"
+          font-weight="600" letter-spacing="-0.2">emit</text>
+    <text x="459" y="1103" fill="#8b919e" font-size="12.5">VMAP 1.0 + inline VAST · debug.json · slates</text>
+  </g>
+  <line x1="640" y1="1118" x2="640" y2="1140" stroke="#3d4455" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="588" y="1148" width="104" height="30" rx="15" fill="none"
+          stroke="#3d4455" stroke-width="1.4"/>
+    <text x="640" y="1168" fill="#8b919e" font-size="13" font-weight="600"
+          letter-spacing="1.2" text-anchor="middle">END</text>
+  </g>
+  <circle cx="152" cy="1194" r="4.5" fill="#a78bfa"/><text x="166" y="1199" fill="#8b919e" font-size="13">AI decides</text>
+  <circle cx="357" cy="1194" r="4.5" fill="#5eead4"/><text x="371" y="1199" fill="#8b919e" font-size="13">model + hard block</text>
+  <circle cx="562" cy="1194" r="4.5" fill="#5b6478"/><text x="576" y="1199" fill="#8b919e" font-size="13">code enforces</text>
+</svg>
