@@ -56,6 +56,47 @@ async def test_normaliser_keeps_the_raw_negative_text_and_the_tags():
     assert client.messages[1]["content"] == "any format at all"
 
 
+class PerRecordText:
+    """Answers each record with a brand named after it; can fail one of them."""
+
+    def __init__(self, fail_on=None):
+        self.calls, self.fail_on = [], fail_on
+
+    async def chat_json(self, prompt, messages, model, fallback):
+        text = messages[1]["content"]
+        self.calls.append(text)
+        if self.fail_on and self.fail_on in text:
+            return fallback
+        name = json.loads(text)["brand"]
+        return NormalisedCatalogue(brands=[nb(name)])
+
+
+async def test_a_json_list_is_normalised_one_record_per_call():
+    client = PerRecordText()
+    raw = json.dumps([{"brand": "A"}, {"brand": "B"}, {"brand": "C"}])
+    brands = await normalise_catalogue(client, raw)
+    assert [b.id for b in brands] == ["a", "b", "c"] and len(client.calls) == 3
+
+
+async def test_adding_a_brand_changes_only_that_records_call_text():
+    first, second = PerRecordText(), PerRecordText()
+    await normalise_catalogue(first, json.dumps([{"brand": "A"}, {"brand": "B"}]))
+    await normalise_catalogue(second, json.dumps([{"brand": "A"}, {"brand": "B"}, {"brand": "Z"}]))
+    assert set(first.calls) <= set(second.calls) and len(set(second.calls) - set(first.calls)) == 1
+
+
+async def test_a_failed_record_omits_only_that_brand():
+    client = PerRecordText(fail_on='"B"')
+    brands = await normalise_catalogue(client, json.dumps([{"brand": "A"}, {"brand": "B"}, {"brand": "C"}]))
+    assert [b.id for b in brands] == ["a", "c"]
+
+
+async def test_csv_or_free_text_is_one_call_for_the_whole_text():
+    client = FakeText(NormalisedCatalogue(brands=[nb("A"), nb("B")]))
+    brands = await normalise_catalogue(client, "name,sector\nA,tea\nB,rides")
+    assert [b.id for b in brands] == ["a", "b"]
+
+
 async def test_a_failed_normaliser_call_gives_no_brands_so_every_slot_is_a_promo():
     assert await normalise_catalogue(FakeText(None), "raw") == []
 

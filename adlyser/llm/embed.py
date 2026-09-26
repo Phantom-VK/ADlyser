@@ -1,6 +1,7 @@
 """Sentence embeddings behind one function, so the model is a config value. Vectors are cached on disk."""
 
 import asyncio
+import threading
 from typing import Any
 
 import numpy as np
@@ -23,15 +24,27 @@ class Embedder:
         self.model_name = model_name
         self.cache = cache
         self._model: Any = None
+        self._lock = threading.Lock()
+
+    def _load(self) -> Any:
+        """Load the model once (thread-safe) and run one dummy encode so the first real call is fast."""
+        with self._lock:
+            if self._model is None:
+                from sentence_transformers import SentenceTransformer  # heavy import
+
+                log.info("embed_model_load", extra={"model": self.model_name})
+                model = SentenceTransformer(self.model_name, device="cpu")
+                model.encode(["warm up"], normalize_embeddings=True)
+                self._model = model
+            return self._model
+
+    async def preload(self) -> None:
+        """Load and warm the model in the background so matching does not wait for it."""
+        await asyncio.to_thread(self._load)
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
-        """Load the model if needed and encode ``texts`` to unit-length vectors."""
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer  # heavy import, only on a cache miss
-
-            log.info("embed_model_load", extra={"model": self.model_name})
-            self._model = SentenceTransformer(self.model_name, device="cpu")
-        return self._model.encode(texts, normalize_embeddings=True).tolist()
+        """Encode ``texts`` to unit-length vectors, loading the model if needed."""
+        return self._load().encode(texts, normalize_embeddings=True).tolist()
 
     async def embed(self, texts: list[str]) -> np.ndarray:
         """Embed texts (unit-length rows), computing only the ones not cached.

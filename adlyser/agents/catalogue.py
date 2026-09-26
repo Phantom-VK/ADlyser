@@ -1,5 +1,7 @@
 """CatalogueNormaliser: any catalogue format -> brands in the fixed schema (one text-model call)."""
 
+import asyncio
+import json
 import re
 from pathlib import Path
 
@@ -40,19 +42,35 @@ def to_brands(catalogue: NormalisedCatalogue) -> list[Brand]:
     return brands
 
 
+async def _normalise_text(client: LLMClient, text: str) -> NormalisedCatalogue:
+    """One normaliser call over some catalogue text (cached by content)."""
+    messages = [
+        {"role": "system", "content": with_schema(CATALOGUE_NORMALISER, NormalisedCatalogue)},
+        {"role": "user", "content": text},
+    ]
+    return await client.chat_json("catalogue_normaliser", messages, NormalisedCatalogue, EMPTY)
+
+
 async def normalise_catalogue(client: LLMClient, raw: str) -> list[Brand]:
-    """Normalise raw catalogue text. If the call fails there are no brands, so every slot is a promo.
+    """Normalise raw catalogue text. If a call fails its brands are omitted, so they are never placed.
+
+    A JSON list is normalised one record per call, in parallel, each cached by its own content: adding a
+    brand costs one small call. Any other format (CSV, free text) goes through one call for the whole text.
 
     :param client: the text client.
     :param raw: the catalogue file content, in any format.
     :return: the normalised brands.
     """
-    messages = [
-        {"role": "system", "content": with_schema(CATALOGUE_NORMALISER, NormalisedCatalogue)},
-        {"role": "user", "content": raw},
-    ]
-    out = await client.chat_json("catalogue_normaliser", messages, NormalisedCatalogue, EMPTY)
-    return to_brands(out)
+    try:
+        records = json.loads(raw)
+    except json.JSONDecodeError:
+        records = None
+    if isinstance(records, list) and records and all(isinstance(r, dict) for r in records):
+        parts = await asyncio.gather(
+            *[_normalise_text(client, json.dumps(r, ensure_ascii=False, sort_keys=True)) for r in records]
+        )
+        return to_brands(NormalisedCatalogue(brands=[b for part in parts for b in part.brands]))
+    return to_brands(await _normalise_text(client, raw))
 
 
 def read_catalogue(path: Path) -> str:
