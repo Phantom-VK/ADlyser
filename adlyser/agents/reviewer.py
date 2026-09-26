@@ -12,6 +12,7 @@ from adlyser.llm.client import LLMClient, user_message
 from adlyser.llm.prompts import BREAK_REVIEWER, SAFETY_SWEEP, clock, scene_line, speech_text, with_schema
 from adlyser.log import get_logger
 from adlyser.perception.keyframes import boundary_times, extract_frames, sweep_covers_scene, sweep_times
+from adlyser.rules.safety import validate_sweep
 from adlyser.schemas import Brand, Candidate, ReviewVerdict, Scene, SpeechSeg, SweepRecord, SweepResult
 
 log = get_logger(__name__)
@@ -42,11 +43,11 @@ async def sweep_scene(
     except PerceptionError as exc:
         log.error("sweep_frames_failed", extra={"scene": scene.index, "error": str(exc)[:200]})
         return failed
-    stamps = ", ".join(clock(t) for t in times)
+    stamps = ", ".join(f"{i}={clock(t)}" for i, t in enumerate(times, 1))
     tags = ", ".join(t.value for t in scene.safety_tags) or "none"
     text = (
-        f"Scene {clock(scene.start)} to {clock(scene.end)}. {len(times)} frames in time order, "
-        f"taken at {stamps}.\nCurrent tags: {tags}."
+        f"Scene {clock(scene.start)} to {clock(scene.end)}. {len(times)} frames in time order "
+        f"(number = time): {stamps}.\nCurrent tags: {tags}."
     )
     messages = [
         {"role": "system", "content": with_schema(SAFETY_SWEEP, SweepResult)},
@@ -55,8 +56,10 @@ async def sweep_scene(
     result = await client.chat_json("safety_sweep", messages, SweepResult, SWEEP_FAILED)
     if result is SWEEP_FAILED:
         return failed
-    return SweepRecord(safety_tags=result.safety_tags, unsure_tags=result.unsure_tags, evidence=result.evidence,
-                       ok=True, full_coverage=full, frames=len(times))  # fmt: skip
+    seen, unsure, dropped = validate_sweep(result, len(times))
+    return SweepRecord(safety_tags=[e.tag for e in seen], unsure_tags=[e.tag for e in unsure],
+                       evidence=result.evidence, ok=True, full_coverage=full, frames=len(times),
+                       cues=[*seen, *unsure], dropped=dropped)  # fmt: skip
 
 
 async def review_break(

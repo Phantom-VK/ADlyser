@@ -33,7 +33,7 @@ def _candidate_record(
         status, reason = "below_min_score", f"break_score {verdict.break_score:.2f} below {min_break_score}"
     elif plan is not None and plan.status != "dropped":
         status, reason = "selected", plan.reason
-    elif plan is not None and plan.choice is not None and plan.choice.kind == "blocked":
+    elif plan is not None and plan.choice is not None and plan.choice.kind != "brand":
         status, reason = "blocked", plan.reason
     elif vetoed or plan is not None:
         status, reason = "vetoed", plan.reason if plan else "the reviewer vetoed this break point"

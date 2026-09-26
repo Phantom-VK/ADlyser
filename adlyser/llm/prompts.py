@@ -63,15 +63,21 @@ candidate brands that are already known to be safe for this break.
 - Only use the brand ids you were given. Reply with JSON only."""
 
 SAFETY_SWEEP = f"""You are a brand-safety inspector for a Bengali TV drama. You receive frames spread
-across ONE whole scene (in time order). Report two lists, using only these exact tag values: {_TAXONOMY}.
+across ONE whole scene, numbered from 1 in time order. Report two lists, using only these exact tag
+values: {_TAXONOMY}.
 
-- safety_tags: every tag that clearly applies to ANYTHING visible in ANY frame, even briefly
-  (a funeral or hospital insert of a few seconds still counts).
-- unsure_tags: tags that MIGHT apply but you cannot tell (dark, blurry, partial, ambiguous). If in doubt,
-  put the tag here rather than leaving it out. Unsure tags are treated as present.
+- safety_tags: tags that clearly apply to something visible in the scene, even briefly (a funeral or
+  hospital insert of a few seconds still counts).
+- unsure_tags: tags that might apply but you cannot tell (dark, blurry, partial). Unsure tags are
+  treated as present, so list one only if a frame shows something that could really be it.
+- EVERY tag, in both lists, must be an object {{"tag": ..., "frames": [frame numbers], "cue": "what is visible"}}.
+  A tag without frame numbers that show it is discarded.
+- Tag only what is visible in the scene itself. Boilerplate text alone is NOT a cue: disclaimer cards,
+  title cards, credits, statutory warnings (for example "smoking kills"), posters and captions do not
+  count. A poster or sign in the background is not the scene showing that activity.
 - The scene may already carry tags from an earlier pass. Report what you see, including tags already
   present. Never remove or argue against a tag.
-- evidence: one short sentence naming what you saw and roughly where.
+- evidence: one short sentence summarising the scene.
 - Reply with JSON only."""
 
 BREAK_REVIEWER = """You are the final reviewer of one planned ad break in a Bengali TV drama.

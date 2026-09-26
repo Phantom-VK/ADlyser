@@ -106,16 +106,24 @@ class Rerank(BaseModel):
     ranked: list[RerankEntry]
 
 
-class SweepResult(BaseModel):
-    """Safety sweep output: tags clearly seen across the frames of one scene, and tags it is unsure about."""
+class TagEvidence(BaseModel):
+    """A safety tag with the sweep frames that show it (numbered from 1) and what is visible in them."""
 
-    safety_tags: list[SafetyTag] = Field(default_factory=list)
-    unsure_tags: list[SafetyTag] = Field(default_factory=list)
+    tag: SafetyTag
+    frames: list[int] = Field(default_factory=list)
+    cue: str = ""
+
+
+class SweepResult(BaseModel):
+    """Safety sweep output: tags clearly seen and tags it is unsure about, each citing frames and a cue."""
+
+    safety_tags: list[TagEvidence] = Field(default_factory=list)
+    unsure_tags: list[TagEvidence] = Field(default_factory=list)
     evidence: str
 
 
 class SweepRecord(BaseModel):
-    """What a safety sweep of one scene achieved: its tags, and whether it can vouch for the whole scene."""
+    """What a safety sweep of one scene achieved: its cited tags, and whether it can vouch for the whole scene."""
 
     safety_tags: list[SafetyTag]
     unsure_tags: list[SafetyTag]
@@ -123,6 +131,8 @@ class SweepRecord(BaseModel):
     ok: bool
     full_coverage: bool
     frames: int
+    cues: list[TagEvidence] = Field(default_factory=list)
+    dropped: list[TagEvidence] = Field(default_factory=list)
 
 
 class ReviewVerdict(BaseModel):

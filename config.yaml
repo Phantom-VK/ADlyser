@@ -15,7 +15,7 @@ llm:
   text:
     provider: deepseek
     base_url: https://api.deepseek.com
-    model: deepseek-v4-pro   # confirm against GET /models
+    model: deepseek-flash   # normaliser + rerank; deepseek-v4-pro is the slower alternative
 
 transcribe:
   enabled: false   # optional context only; nothing downstream may require it
@@ -79,7 +79,7 @@ matcher:
   embed_model: BAAI/bge-m3
   shortlist_k: 5   # embedding shortlist size
   top_k: 3         # kept after the rerank
-  min_fit: 0.3     # below this the slot is a promo, not a brand
+  min_fit: 0.4     # best eligible fit below this: no brand here, pacing tries the next-best break
 
 reviewer:
   sweep_interval_s: 10   # one sweep frame per this many seconds of the scene

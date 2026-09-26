@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 
-from adlyser.schemas import Blocked, Brand, SafetyTag, Scene, SweepRecord
+from adlyser.schemas import Blocked, Brand, SafetyTag, Scene, SweepRecord, SweepResult, TagEvidence
 
 UNKNOWN_SCENE = "unknown_scene"
 
@@ -67,3 +67,27 @@ def apply_sweep(scene: Scene, sweep: SweepRecord) -> Scene:
     if sweep.ok and sweep.full_coverage:
         out = out.model_copy(update={"unknown": False})
     return out
+
+
+def _cited(item: TagEvidence, n_frames: int) -> bool:
+    """A tag counts only if it cites at least one frame and every cited frame exists (numbered from 1)."""
+    return bool(item.frames) and all(1 <= i <= n_frames for i in item.frames)
+
+
+def validate_sweep(
+    result: SweepResult, n_frames: int
+) -> tuple[list[TagEvidence], list[TagEvidence], list[TagEvidence]]:
+    """Keep only sweep tags that cite real frames.
+
+    A tag with no frame citation, or with a frame number outside ``1..n_frames``, is dropped. A tag listed
+    as both seen and unsure is kept as seen.
+
+    :param result: the raw sweep output.
+    :param n_frames: how many frames the sweep was given.
+    :return: ``(seen, unsure, dropped)`` evidence lists.
+    """
+    seen = [e for e in result.safety_tags if _cited(e, n_frames)]
+    seen_tags = {e.tag for e in seen}
+    unsure = [e for e in result.unsure_tags if _cited(e, n_frames) and e.tag not in seen_tags]
+    dropped = [e for e in [*result.safety_tags, *result.unsure_tags] if not _cited(e, n_frames)]
+    return seen, unsure, dropped

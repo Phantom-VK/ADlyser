@@ -4,7 +4,16 @@ from types import SimpleNamespace
 from adlyser.agents import reviewer
 from adlyser.config import get_settings
 from adlyser.errors import PerceptionError
-from adlyser.schemas import Brand, Candidate, ReviewVerdict, SafetyTag, Scene, SpeechSeg, SweepResult
+from adlyser.schemas import (
+    Brand,
+    Candidate,
+    ReviewVerdict,
+    SafetyTag,
+    Scene,
+    SpeechSeg,
+    SweepResult,
+    TagEvidence,
+)
 
 SETTINGS = get_settings()
 SCENE = Scene(index=0, start=0, end=95, stretch_indices=[0], summary="a quiet street", dominant_activity="walking",
@@ -28,11 +37,15 @@ def frames_ok(monkeypatch):
     monkeypatch.setattr(reviewer, "extract_frames", lambda video, times, cfg, cache: [b"j"] * len(times))
 
 
-async def test_sweep_sends_frames_across_the_whole_scene_and_returns_seen_and_unsure_tags(monkeypatch):
+async def test_sweep_sends_numbered_frames_and_keeps_only_cited_tags(monkeypatch):
     frames_ok(monkeypatch)
     reply = SweepResult(
-        safety_tags=[SafetyTag.DEATH_GRIEF], unsure_tags=[SafetyTag.MEDICAL_ILLNESS], evidence="funeral"
-    )
+        safety_tags=[TagEvidence(tag=SafetyTag.DEATH_GRIEF, frames=[2], cue="a funeral garland"),
+                     TagEvidence(tag=SafetyTag.VIOLENCE, frames=[], cue="")],
+        unsure_tags=[TagEvidence(tag=SafetyTag.MEDICAL_ILLNESS, frames=[4], cue="a bed with a drip"),
+                     TagEvidence(tag=SafetyTag.ALCOHOL, frames=[99], cue="a bottle")],
+        evidence="mourning",
+    )  # fmt: skip
     client = FakeClient(reply)
     out = await reviewer.sweep_scene(client, Path("v.mp4"), Path("f"), SCENE, SETTINGS)
     assert (
@@ -40,9 +53,13 @@ async def test_sweep_sends_frames_across_the_whole_scene_and_returns_seen_and_un
         and out.safety_tags == [SafetyTag.DEATH_GRIEF]
         and out.unsure_tags == [SafetyTag.MEDICAL_ILLNESS]
     )
+    assert {d.tag for d in out.dropped} == {SafetyTag.VIOLENCE, SafetyTag.ALCOHOL}
+    assert out.cues[0].cue == "a funeral garland"
     content = client.messages[1]["content"]
     assert sum(p["type"] == "image_url" for p in content) == 10 == out.frames  # 95 s at one frame per 10 s
-    assert out.full_coverage and "Current tags: alcohol" in content[0]["text"]
+    assert (
+        out.full_coverage and "Current tags: alcohol" in content[0]["text"] and "1=0:04" in content[0]["text"]
+    )
 
 
 async def test_a_scene_longer_than_the_frame_cap_allows_is_a_capped_sweep(monkeypatch):

@@ -143,8 +143,15 @@ def mock_match(monkeypatch, kind):
     monkeypatch.setattr(graph, "match_brand", fake)
 
 
+async def test_a_poor_fit_is_treated_like_a_blocked_break_so_pacing_can_try_another(monkeypatch):
+    mock_match(monkeypatch, "no_fit")
+    out = await pipeline().match(state([plan(status="needs_brand", kind=None)]))
+    settled = await pipeline().settle(state(out["plans"]))
+    assert settled["excluded"] == [500] and settled["repace"]
+
+
 async def test_match_sets_the_status_from_the_choice_kind(monkeypatch):
-    for kind, status in [("brand", "needs_review"), ("blocked", "blocked"), ("no_fit", "promo")]:
+    for kind, status in [("brand", "needs_review"), ("blocked", "blocked"), ("no_fit", "blocked")]:
         mock_match(monkeypatch, kind)
         out = await pipeline().match(state([plan(status="needs_brand", kind=None)]))
         assert out["plans"][0].status == status

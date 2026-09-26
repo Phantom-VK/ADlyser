@@ -1,7 +1,14 @@
 import random
 
-from adlyser.rules.safety import UNKNOWN_SCENE, add_sweep_tags, apply_sweep, blocking_tags, split_brands
-from adlyser.schemas import Brand, SafetyTag, Scene, SweepRecord
+from adlyser.rules.safety import (
+    UNKNOWN_SCENE,
+    add_sweep_tags,
+    apply_sweep,
+    blocking_tags,
+    split_brands,
+    validate_sweep,
+)
+from adlyser.schemas import Brand, SafetyTag, Scene, SweepRecord, SweepResult, TagEvidence
 
 T = SafetyTag
 
@@ -153,3 +160,50 @@ def test_sweep_never_removes_tags_whatever_the_outcome():
         )
         out = apply_sweep(scene(start, unknown=rng.random() < 0.5), rec)
         assert start <= set(out.safety_tags)
+
+
+def ev(tag, frames, cue="visible"):
+    return TagEvidence(tag=tag, frames=frames, cue=cue)
+
+
+def test_a_tag_without_a_frame_citation_is_dropped():
+    result = SweepResult(safety_tags=[ev(T.VIOLENCE, [])], unsure_tags=[ev(T.ALCOHOL, [])], evidence="e")
+    seen, unsure, dropped = validate_sweep(result, 10)
+    assert seen == [] and unsure == [] and {d.tag for d in dropped} == {T.VIOLENCE, T.ALCOHOL}
+
+
+def test_a_tag_citing_an_out_of_range_frame_is_dropped():
+    result = SweepResult(
+        safety_tags=[ev(T.VIOLENCE, [3, 11]), ev(T.DEATH_GRIEF, [0]), ev(T.ALCOHOL, [10])],
+        unsure_tags=[ev(T.TOBACCO_DRUGS, [-1])],
+        evidence="e",
+    )
+    seen, unsure, dropped = validate_sweep(result, 10)
+    assert [e.tag for e in seen] == [T.ALCOHOL] and unsure == []
+    assert {d.tag for d in dropped} == {T.VIOLENCE, T.DEATH_GRIEF, T.TOBACCO_DRUGS}
+
+
+def test_a_cited_unsure_tag_is_kept_and_a_tag_listed_twice_counts_as_seen():
+    result = SweepResult(
+        safety_tags=[ev(T.VIOLENCE, [2])],
+        unsure_tags=[ev(T.VIOLENCE, [4]), ev(T.DEATH_GRIEF, [5], "a garland")],
+        evidence="e",
+    )
+    seen, unsure, dropped = validate_sweep(result, 10)
+    assert (
+        [e.tag for e in seen] == [T.VIOLENCE] and [e.tag for e in unsure] == [T.DEATH_GRIEF] and dropped == []
+    )
+
+
+def test_a_cited_unsure_tag_still_blocks_the_matching_brand_end_to_end():
+    result = SweepResult(unsure_tags=[ev(T.MEDICAL_ILLNESS, [3], "a bed with a drip")], evidence="e")
+    seen, unsure, _ = validate_sweep(result, 8)
+    record = sweep([e.tag for e in seen], [e.tag for e in unsure])
+    assert blocking_tags(FOOD, apply_sweep(scene(), record), scene()) == ["medical_illness"]
+
+
+def test_an_uncited_tag_never_reaches_the_scene():
+    result = SweepResult(safety_tags=[ev(T.DEATH_GRIEF, [])], evidence="e")
+    seen, unsure, _ = validate_sweep(result, 8)
+    record = sweep([e.tag for e in seen], [e.tag for e in unsure])
+    assert blocking_tags(FOOD, apply_sweep(scene(), record), scene()) == []

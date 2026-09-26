@@ -225,10 +225,8 @@ class Pipeline:
                     f"matched {names[choice.brand_id]} (fit {choice.shortlist[0].fit:.2f})",
                     "needs_review",
                 )
-            elif choice.kind == "blocked":
-                note, status = f"no brand allowed here: {choice.reason}", "blocked"
-            else:
-                note, status = f"promo slot: {choice.reason}", "promo"
+            else:  # blocked, or no brand fits well: the same treatment (next-best break, promo as a last resort)
+                note, status = f"no brand for this break: {choice.reason}", "blocked"
             plans[i] = p.model_copy(update={"choice": choice, "status": status, "history": [*p.history, note],
                                             "reason": note})  # fmt: skip
         return {"plans": plans}
