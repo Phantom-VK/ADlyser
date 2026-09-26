@@ -64,11 +64,21 @@ async def match_brand(
     """
     eligible, blocked = split_brands(brands, before, after)
     if before.unknown or after.unknown:
-        return BrandChoice(brand_id=None, shortlist=[], blocked=blocked, reason="unknown scene: promo slot")
+        return BrandChoice(
+            kind="blocked", brand_id=None, shortlist=[], blocked=blocked, reason="unknown scene"
+        )
+    if not eligible:
+        return BrandChoice(
+            kind="blocked", brand_id=None, shortlist=[], blocked=blocked, reason="every brand is blocked"
+        )
     pool = [b for b in eligible if b.id not in excluded]
     if not pool:
         return BrandChoice(
-            brand_id=None, shortlist=[], blocked=blocked, reason="no eligible brand: promo slot"
+            kind="no_fit",
+            brand_id=None,
+            shortlist=[],
+            blocked=blocked,
+            reason="every eligible brand was vetoed",
         )
 
     vectors = await embedder.embed([scene_query(before), *(brand_text(b) for b in pool)])
@@ -104,7 +114,9 @@ async def match_brand(
         kept.append(entry.model_copy(update={"fit": r.fit, "reason": r.reason}))
     kept = sorted(kept, key=lambda e: -(e.fit or 0.0))[: cfg.top_k]
     if kept and kept[0].fit is not None and kept[0].fit >= cfg.min_fit:
-        return BrandChoice(brand_id=kept[0].brand_id, shortlist=kept, blocked=blocked, reason="best fit")
+        return BrandChoice(
+            kind="brand", brand_id=kept[0].brand_id, shortlist=kept, blocked=blocked, reason="best fit"
+        )
     return BrandChoice(
-        brand_id=None, shortlist=kept, blocked=blocked, reason="no brand fits well: promo slot"
+        kind="no_fit", brand_id=None, shortlist=kept, blocked=blocked, reason="no brand fits well"
     )

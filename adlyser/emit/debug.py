@@ -15,7 +15,7 @@ from adlyser.schemas import (
     Stretch,
     StretchAnalysis,
     StretchRecord,
-    SweepResult,
+    SweepRecord,
 )
 
 
@@ -33,6 +33,8 @@ def _candidate_record(
         status, reason = "below_min_score", f"break_score {verdict.break_score:.2f} below {min_break_score}"
     elif plan is not None and plan.status != "dropped":
         status, reason = "selected", plan.reason
+    elif plan is not None and plan.choice is not None and plan.choice.kind == "blocked":
+        status, reason = "blocked", plan.reason
     elif vetoed or plan is not None:
         status, reason = "vetoed", plan.reason if plan else "the reviewer vetoed this break point"
     else:
@@ -61,7 +63,7 @@ def build_debug(
     traces: list[list[dict]],
     base_scenes: list[Scene],
     scenes: list[Scene],
-    sweeps: dict[int, SweepResult],
+    sweeps: dict[int, SweepRecord],
     plans: list[BreakPlan],
     vetoed_times: list[float],
     brands: list[Brand],
@@ -102,13 +104,12 @@ def build_debug(
     ]
     scene_records = []
     for base, now in zip(base_scenes, scenes, strict=True):
-        sweep = sweeps.get(now.index)
         scene_records.append(
             SceneRecord(
                 scene=now,
                 sweep_added=sorted(set(now.safety_tags) - set(base.safety_tags)),
-                sweep_evidence=sweep.evidence if sweep else "",
-                sweep_confidence=sweep.confidence if sweep else None,
+                sweep=sweeps.get(now.index),
+                unknown_before_sweep=base.unknown,
             )
         )
     break_records = []

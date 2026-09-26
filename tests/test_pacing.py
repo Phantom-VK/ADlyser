@@ -2,7 +2,7 @@ import random
 from itertools import combinations, pairwise
 
 from adlyser.config import PacingConfig
-from adlyser.rules.pacing import max_breaks, select_breaks
+from adlyser.rules.pacing import can_add, max_breaks, select_breaks
 from adlyser.schemas import BreakOption, Candidate
 
 CFG = PacingConfig(
@@ -90,3 +90,11 @@ def test_property_constraints_hold_and_the_score_is_optimal():
         assert all(b - a >= c.min_gap_s for a, b in pairwise(ts))
         assert all(o.break_score >= c.min_break_score for o in chosen)
         assert abs(sum(o.break_score for o in chosen) - brute_force(options, duration, c)) < 1e-9
+
+
+def test_can_add_respects_the_gap_and_the_cap():
+    assert can_add([], 500, 3600, CFG)
+    assert not can_add([400], 500, 3600, CFG)  # too close
+    assert can_add([400], 800, 3600, CFG)
+    assert can_add([400, 800], 1200, 1800, CFG)  # 30 min allows 3
+    assert not can_add([400, 800, 1200], 1600, 1800, CFG)

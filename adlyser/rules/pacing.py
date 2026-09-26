@@ -62,3 +62,15 @@ def select_breaks(options: list[BreakOption], duration_s: float, cfg: PacingConf
         cursor = prev[k][cursor]
         k -= 1
     return chosen[::-1]
+
+
+def can_add(times: list[float], t: float, duration_s: float, cfg: PacingConfig) -> bool:
+    """Whether one more break at ``t`` keeps the pacing constraints, given the breaks already placed.
+
+    :param times: times of the breaks already placed.
+    :param t: the time of the break to add.
+    :param duration_s: video length in seconds.
+    :param cfg: pacing settings.
+    :return: true if the count cap and the minimum gap both hold.
+    """
+    return len(times) < max_breaks(duration_s, cfg) and all(abs(t - x) >= cfg.min_gap_s for x in times)

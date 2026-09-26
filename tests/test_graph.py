@@ -1,121 +1,275 @@
-"""Review-node behaviour with the vision agents mocked (no API calls)."""
+"""Graph node behaviour with the agents mocked (no API calls)."""
 
 from pathlib import Path
 from types import SimpleNamespace
 
 from adlyser import graph
 from adlyser.config import get_settings
-from adlyser.graph import Pipeline, route_after_review
+from adlyser.graph import Pipeline, route_after_settle
 from adlyser.schemas import (
     Brand,
     BrandChoice,
+    BreakOption,
     BreakPlan,
     Candidate,
     ReviewVerdict,
     SafetyTag,
     Scene,
-    SweepResult,
+    ShortlistEntry,
+    SweepRecord,
 )
 
 T = SafetyTag
 SETTINGS = get_settings()
+MAX_LOOPS = SETTINGS.reviewer.max_loops
 
 
-def scene(i, tags=()):
-    return Scene(index=i, start=i * 100, end=(i + 1) * 100, stretch_indices=[i], summary="s",
-                 dominant_activity="a", activity_tags=[], safety_tags=sorted(tags), unknown=False)  # fmt: skip
+def scene(i, tags=(), unknown=False, start=None, end=None):
+    return Scene(
+        index=i,
+        start=i * 500 if start is None else start,
+        end=(i + 1) * 500 if end is None else end,
+        stretch_indices=[i],
+        summary="s",
+        dominant_activity="a",
+        activity_tags=[],
+        safety_tags=sorted(tags),
+        unknown=unknown,
+    )
+
+
+def cand(t):
+    return Candidate(t=t, silence_start=t - 1, silence_end=t + 1, kind="hard")
 
 
 FOOD = Brand(id="food", name="Food", category="c", tagline="t", description="d", negative_tags=[T.DEATH_GRIEF],
              negative_contexts_raw=["death"])  # fmt: skip
+RIDES = Brand(id="rides", name="Rides", category="c", tagline="t", description="d", negative_tags=[],
+              negative_contexts_raw=[])  # fmt: skip
 
 
-def plan(t=100, status="needs_review"):
-    cand = Candidate(t=t, silence_start=t - 1, silence_end=t + 1, kind="hard")
-    choice = BrandChoice(brand_id="food", shortlist=[], blocked=[], reason="x")
-    return BreakPlan(candidate=cand, break_score=0.8, before=0, after=1, status=status, choice=choice)
+def choice(kind="brand", brand_id="food"):
+    entry = ShortlistEntry(brand_id="food", name="Food", similarity=0.5, fit=0.9, reason="r")
+    return BrandChoice(
+        kind=kind, brand_id=brand_id if kind == "brand" else None, shortlist=[entry], blocked=[], reason="x"
+    )
+
+
+def plan(t=500, status="needs_review", kind="brand", score=0.8, before=0, after=1):
+    return BreakPlan(candidate=cand(t), break_score=score, before=before, after=after, status=status,
+                     choice=choice(kind) if kind else None)  # fmt: skip
 
 
 def pipeline():
     pipe = object.__new__(Pipeline)
     pipe.settings, pipe.video, pipe.frames_dir = SETTINGS, Path("v.mp4"), Path("f")
-    pipe.vision = SimpleNamespace()
+    pipe.vision = pipe.text = pipe.embedder = SimpleNamespace()
     return pipe
 
 
-def state(loops=0):
-    return {"plans": [plan()], "scenes": [scene(0), scene(1)], "sweeps": {}, "excluded": [], "loops": loops,
-            "brands": [FOOD], "perception": SimpleNamespace(speech=[], duration_s=1000.0)}  # fmt: skip
+def state(plans=None, scenes=None, loops=0, excluded=(), sweeps=None):
+    return {
+        "plans": plans if plans is not None else [plan()],
+        "scenes": scenes or [scene(0), scene(1), scene(2)],
+        "sweeps": sweeps or {},
+        "excluded": list(excluded),
+        "loops": loops,
+        "repace": False,
+        "brands": [FOOD, RIDES],
+        "perception": SimpleNamespace(speech=[], duration_s=3600.0),
+    }
 
 
-def mock(monkeypatch, sweep_tags=(), sweep_conf=0.9, verdict=None):
-    async def fake_sweep(client, video, frames_dir, sc, settings):
-        return SweepResult(safety_tags=list(sweep_tags), evidence="e", confidence=sweep_conf)
+def record(tags=(), unsure=(), ok=True, full=True):
+    return SweepRecord(
+        safety_tags=list(tags), unsure_tags=list(unsure), evidence="e", ok=ok, full_coverage=full, frames=5
+    )
 
-    async def fake_review(*args):
-        return verdict or ReviewVerdict(decision="approve", reason="fine"), [{"tool": "look_closer"}]
 
-    monkeypatch.setattr(graph, "sweep_scene", fake_sweep)
-    monkeypatch.setattr(graph, "review_break", fake_review)
+def mock_sweep(monkeypatch, rec, calls=None):
+    async def fake(client, video, frames_dir, sc, settings):
+        if calls is not None:
+            calls.append(sc.index)
+        return rec
+
+    monkeypatch.setattr(graph, "sweep_scene", fake)
+
+
+# ---- sweep node ------------------------------------------------------------
+
+
+async def test_sweep_adds_seen_and_unsure_tags_to_both_sides_of_the_break(monkeypatch):
+    mock_sweep(monkeypatch, record([T.ALCOHOL], unsure=[T.DEATH_GRIEF]))
+    out = await pipeline().sweep(state([plan(status="needs_brand")]))
+    assert set(out["scenes"][0].safety_tags) == {T.ALCOHOL, T.DEATH_GRIEF}
+    assert set(out["scenes"][1].safety_tags) == {T.ALCOHOL, T.DEATH_GRIEF}
+    assert set(out["sweeps"]) == {0, 1}
+
+
+async def test_each_scene_is_swept_only_once(monkeypatch):
+    calls = []
+    mock_sweep(monkeypatch, record(), calls)
+    pipe = pipeline()
+    first = await pipe.sweep(state([plan(status="needs_brand")]))
+    second_state = state([plan(status="retry_brand")], scenes=first["scenes"], sweeps=first["sweeps"])
+    await pipe.sweep(second_state)
+    assert calls == [0, 1]
+
+
+async def test_a_full_coverage_sweep_clears_an_unknown_scene_before_matching(monkeypatch):
+    mock_sweep(monkeypatch, record([T.ALCOHOL]))
+    out = await pipeline().sweep(
+        state([plan(status="needs_brand")], scenes=[scene(0, unknown=True), scene(1)])
+    )
+    assert not out["scenes"][0].unknown
+
+
+async def test_a_failed_or_capped_sweep_leaves_the_scene_unknown(monkeypatch):
+    for rec in (record(ok=False), record(full=False)):
+        mock_sweep(monkeypatch, rec)
+        out = await pipeline().sweep(
+            state([plan(status="needs_brand")], scenes=[scene(0, unknown=True), scene(1)])
+        )
+        assert out["scenes"][0].unknown
+
+
+# ---- match node ------------------------------------------------------------
+
+
+def mock_match(monkeypatch, kind):
+    async def fake(embedder, client, brands, before, after, excluded, cfg):
+        return choice(kind)
+
+    monkeypatch.setattr(graph, "match_brand", fake)
+
+
+async def test_match_sets_the_status_from_the_choice_kind(monkeypatch):
+    for kind, status in [("brand", "needs_review"), ("blocked", "blocked"), ("no_fit", "promo")]:
+        mock_match(monkeypatch, kind)
+        out = await pipeline().match(state([plan(status="needs_brand", kind=None)]))
+        assert out["plans"][0].status == status
+
+
+# ---- review node -----------------------------------------------------------
+
+
+def mock_review(monkeypatch, verdict):
+    async def fake(*args):
+        return verdict, [{"tool": "look_closer"}]
+
+    monkeypatch.setattr(graph, "review_break", fake)
 
 
 async def test_approve(monkeypatch):
-    mock(monkeypatch)
+    mock_review(monkeypatch, ReviewVerdict(decision="approve", reason="fine"))
     out = await pipeline().review(state())
     assert out["plans"][0].status == "approved" and out["plans"][0].review_trace == [{"tool": "look_closer"}]
-    assert out["loops"] == 0 and not out["repace"]
 
 
-async def test_a_sweep_that_adds_death_grief_blocks_the_chosen_food_brand_and_retries_the_match(monkeypatch):
-    mock(monkeypatch, sweep_tags=[T.DEATH_GRIEF])
-    out = await pipeline().review(state())
+async def test_a_brand_blocked_by_the_swept_scenes_is_not_reviewed(monkeypatch):
+    mock_review(monkeypatch, ReviewVerdict(decision="approve", reason="fine"))
+    out = await pipeline().review(state(scenes=[scene(0, {T.DEATH_GRIEF}), scene(1)]))
     p = out["plans"][0]
-    assert p.status == "retry_brand" and "blocked after sweep: death_grief" in p.history[-1]
-    assert p.review is None  # blocked in code, no reviewer call needed
-    assert T.DEATH_GRIEF in out["scenes"][0].safety_tags and out["loops"] == 1
-    assert route_after_review(out) == "match"
+    assert p.status == "retry_brand" and p.review is None and "death_grief" in p.history[-1]
 
 
-async def test_sweep_tags_are_only_added_never_removed(monkeypatch):
-    mock(monkeypatch, sweep_tags=[T.VIOLENCE])
-    s = state()
-    s["scenes"] = [scene(0, {T.ALCOHOL}), scene(1)]
-    out = await pipeline().review(s)
-    assert set(out["scenes"][0].safety_tags) == {T.ALCOHOL, T.VIOLENCE}
+async def test_veto_outcomes(monkeypatch):
+    for retry, status in [
+        ("next_brand", "retry_brand"),
+        ("next_candidate", "retry_candidate"),
+        ("promo", "promo"),
+    ]:
+        mock_review(monkeypatch, ReviewVerdict(decision="veto", reason="x", retry=retry))
+        out = await pipeline().review(state())
+        assert out["plans"][0].status == status
+    assert out["plans"][0].review.decision == "veto"
 
 
-async def test_a_failed_sweep_makes_the_scene_unknown_and_the_slot_a_promo(monkeypatch):
-    mock(monkeypatch, sweep_conf=0.0)
+async def test_a_vetoed_brand_is_remembered_for_the_rematch(monkeypatch):
+    mock_review(monkeypatch, ReviewVerdict(decision="veto", reason="x", retry="next_brand"))
     out = await pipeline().review(state())
-    assert out["plans"][0].status == "promo" and out["scenes"][0].unknown and out["loops"] == 0
+    assert out["plans"][0].vetoed_brands == ["food"]
 
 
-async def test_veto_next_brand_excludes_that_brand_and_loops_to_match(monkeypatch):
-    mock(monkeypatch, verdict=ReviewVerdict(decision="veto", reason="hospital bed", retry="next_brand"))
-    out = await pipeline().review(state())
-    p = out["plans"][0]
-    assert p.status == "retry_brand" and p.vetoed_brands == ["food"] and out["loops"] == 1
-    assert route_after_review(out) == "match"
+# ---- settle / route --------------------------------------------------------
 
 
-async def test_veto_next_candidate_drops_the_break_excludes_it_and_loops_to_pace(monkeypatch):
-    mock(monkeypatch, verdict=ReviewVerdict(decision="veto", reason="mid-scene", retry="next_candidate"))
-    out = await pipeline().review(state())
-    assert out["plans"][0].status == "dropped" and out["excluded"] == [100.0]
-    assert out["repace"] and out["loops"] == 1 and route_after_review(out) == "pace"
+async def test_a_blocked_break_is_excluded_and_the_solver_is_asked_for_the_next_best_break():
+    out = await pipeline().settle(state([plan(status="blocked", kind="blocked")]))
+    assert out["excluded"] == [500] and out["repace"] and out["loops"] == 1
+    assert out["plans"][0].status == "blocked"  # kept, so finalize can still fall back to a promo
+    assert route_after_settle(out | {"plans": out["plans"]}) == "pace"
 
 
-async def test_veto_promo_gives_a_promo_slot_without_looping(monkeypatch):
-    mock(monkeypatch, verdict=ReviewVerdict(decision="veto", reason="tone", retry="promo"))
-    out = await pipeline().review(state())
-    assert out["plans"][0].status == "promo" and out["loops"] == 0 and route_after_review(out) == "emit"
+async def test_a_blocked_break_stays_blocked_when_the_loops_are_used_up():
+    out = await pipeline().settle(state([plan(status="blocked", kind="blocked")], loops=MAX_LOOPS))
+    assert out["excluded"] == [] and not out["repace"] and out["loops"] == MAX_LOOPS
+    assert route_after_settle(out) == "finalize"
 
 
-async def test_loops_stop_at_the_limit(monkeypatch):
-    limit = SETTINGS.reviewer.max_loops
-    mock(monkeypatch, verdict=ReviewVerdict(decision="veto", reason="x", retry="next_brand"))
-    out = await pipeline().review(state(loops=limit))
-    assert out["plans"][0].status == "promo" and out["loops"] == limit and route_after_review(out) == "emit"
-    mock(monkeypatch, verdict=ReviewVerdict(decision="veto", reason="x", retry="next_candidate"))
-    out = await pipeline().review(state(loops=limit))
+async def test_an_already_excluded_blocked_break_does_not_trigger_another_loop():
+    out = await pipeline().settle(state([plan(status="blocked", kind="blocked")], excluded=[500]))
+    assert not out["repace"] and out["loops"] == 0
+
+
+async def test_veto_next_candidate_drops_the_break_and_loops_to_pace():
+    out = await pipeline().settle(state([plan(status="retry_candidate")]))
+    assert out["plans"][0].status == "dropped" and out["excluded"] == [500] and out["repace"]
+
+
+async def test_veto_next_candidate_at_the_limit_drops_without_looping():
+    out = await pipeline().settle(state([plan(status="retry_candidate")], loops=MAX_LOOPS))
     assert out["plans"][0].status == "dropped" and out["excluded"] == [] and not out["repace"]
+
+
+async def test_retry_brand_loops_to_the_sweep_and_match_or_becomes_a_promo_at_the_limit():
+    out = await pipeline().settle(state([plan(status="retry_brand")]))
+    assert out["loops"] == 1 and route_after_settle(out) == "sweep"
+    out = await pipeline().settle(state([plan(status="retry_brand")], loops=MAX_LOOPS))
+    assert out["plans"][0].status == "promo" and route_after_settle(out) == "finalize"
+
+
+async def test_nothing_to_retry_goes_to_finalize():
+    out = await pipeline().settle(state([plan(status="approved")]))
+    assert out["loops"] == 0 and route_after_settle(out) == "finalize"
+
+
+# ---- finalize --------------------------------------------------------------
+
+
+async def test_a_blocked_break_falls_back_to_a_promo_when_pacing_has_room():
+    out = await pipeline().finalize(state([plan(500, "blocked", "blocked")]))
+    assert out["plans"][0].status == "promo"
+
+
+async def test_a_blocked_break_is_dropped_when_it_would_break_the_pacing_rules():
+    plans = [plan(500, "approved"), plan(600, "blocked", "blocked")]  # 100 s apart, min gap is 300
+    out = await pipeline().finalize(state(plans))
+    assert [p.status for p in out["plans"]] == ["approved", "dropped"]
+
+
+async def test_blocked_breaks_compete_for_room_by_score():
+    plans = [plan(500, "blocked", "blocked", score=0.6), plan(600, "blocked", "blocked", score=0.9)]
+    out = await pipeline().finalize(state(plans))
+    assert [p.status for p in out["plans"]] == ["dropped", "promo"]
+
+
+# ---- pace ------------------------------------------------------------------
+
+
+async def test_pace_picks_the_next_best_option_once_a_break_point_is_excluded():
+    options = [
+        BreakOption(candidate=cand(500), break_score=0.9),
+        BreakOption(candidate=cand(1000), break_score=0.8),
+    ]
+    base = state([], scenes=[scene(0), scene(1), scene(2)], excluded=[500])
+    base["options"] = options
+    base["perception"] = SimpleNamespace(
+        speech=[], duration_s=1800.0
+    )  # room for 3 breaks, but only one is left
+    out = await pipeline().pace(base)
+    assert [p.candidate.t for p in out["plans"]] == [1000]
+    assert out["plans"][0].status == "needs_brand" and (out["plans"][0].before, out["plans"][0].after) == (
+        1,
+        2,
+    )

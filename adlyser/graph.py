@@ -1,7 +1,7 @@
 """The pipeline as a LangGraph state graph.
 
-measure -> candidates -> stretches -> boundaries -> scenes -> pace -> match -> review -> emit,
-with a veto loop from ``review`` back to ``match`` (another brand) or ``pace`` (another break point),
+catalogue, measure -> analyse -> boundaries -> scenes -> pace -> sweep -> match -> review -> settle -> finalize
+-> emit. ``settle`` loops back to ``pace`` (another break point) or ``sweep`` then ``match`` (another brand),
 at most ``reviewer.max_loops`` times. Node bodies are plain async methods; agents and rules stay
 testable without the framework.
 """
@@ -30,8 +30,8 @@ from adlyser.llm.embed import Embedder
 from adlyser.log import get_logger
 from adlyser.perception.measure import measure_signals
 from adlyser.rules.candidates import find_candidates
-from adlyser.rules.pacing import select_breaks
-from adlyser.rules.safety import UNKNOWN_SCENE, apply_sweep, blocking_tags
+from adlyser.rules.pacing import can_add, select_breaks
+from adlyser.rules.safety import apply_sweep, blocking_tags
 from adlyser.rules.scenes import build_scenes, make_stretches, scenes_around
 from adlyser.schemas import (
     AdBreakSpec,
@@ -46,7 +46,7 @@ from adlyser.schemas import (
     Scene,
     Stretch,
     StretchAnalysis,
-    SweepResult,
+    SweepRecord,
 )
 
 log = get_logger(__name__)
@@ -68,15 +68,15 @@ class State(TypedDict, total=False):
     brands: list[Brand]
     plans: list[BreakPlan]
     excluded: list[float]
-    sweeps: dict[int, SweepResult]
+    sweeps: dict[int, SweepRecord]
     loops: int
     repace: bool
     report: DebugReport
     vmap: str
 
 
-def route_after_review(state: State) -> str:
-    """Where to go after the review: re-pace, re-match, or emit.
+def route_after_settle(state: State) -> str:
+    """Where to go after the settle step: re-pace, re-match, or finalize.
 
     :param state: the graph state.
     :return: the next node name.
@@ -84,8 +84,8 @@ def route_after_review(state: State) -> str:
     if state.get("repace"):
         return "pace"
     if any(p.status == "retry_brand" for p in state["plans"]):
-        return "match"
-    return "emit"
+        return "sweep"
+    return "finalize"
 
 
 class Pipeline:
@@ -188,8 +188,25 @@ class Pipeline:
         history = [p for p in state["plans"] if p.status == "dropped" and p.candidate.t not in chosen_times]
         return {"plans": [*plans, *history], "repace": False}
 
+    async def sweep(self, state: State) -> State:
+        """Safety sweep (BreakReviewer step 1) of the whole scene on each side of every break awaiting a brand.
+
+        Runs before matching so the matcher and the hard block see the dense evidence, and so a sweep that
+        covers a whole unknown scene can clear it. Sweeps are cached per scene for the whole run.
+        """
+        scenes, sweeps = list(state["scenes"]), dict(state["sweeps"])
+        waiting = [p for p in state["plans"] if p.status in ("needs_brand", "retry_brand")]
+        need = sorted({k for p in waiting for k in (p.before, p.after)} - set(sweeps))
+        records = await asyncio.gather(
+            *[sweep_scene(self.vision, self.video, self.frames_dir, scenes[k], self.settings) for k in need]
+        )
+        for k, record in zip(need, records, strict=True):
+            sweeps[k] = record
+            scenes[k] = apply_sweep(scenes[k], record)
+        return {"scenes": scenes, "sweeps": sweeps}
+
     async def match(self, state: State) -> State:
-        """BrandMatcher for every break that needs a brand (hard block runs inside it)."""
+        """BrandMatcher (reranks run in parallel across breaks). The hard block runs inside it."""
         scenes, brands = state["scenes"], state["brands"]
         plans = list(state["plans"])
         todo = [i for i, p in enumerate(plans) if p.status in ("needs_brand", "retry_brand")]
@@ -203,50 +220,41 @@ class Pipeline:
         names = {b.id: b.name for b in brands}
         for i, choice in zip(todo, choices, strict=True):
             p = plans[i]
-            if choice.brand_id is None:
-                note, status = f"promo slot: {choice.reason}", "promo"
+            if choice.kind == "brand":
+                note, status = (
+                    f"matched {names[choice.brand_id]} (fit {choice.shortlist[0].fit:.2f})",
+                    "needs_review",
+                )
+            elif choice.kind == "blocked":
+                note, status = f"no brand allowed here: {choice.reason}", "blocked"
             else:
-                top = choice.shortlist[0]
-                note, status = f"matched {names[choice.brand_id]} (fit {top.fit:.2f})", "needs_review"
+                note, status = f"promo slot: {choice.reason}", "promo"
             plans[i] = p.model_copy(update={"choice": choice, "status": status, "history": [*p.history, note],
                                             "reason": note})  # fmt: skip
         return {"plans": plans}
 
     async def review(self, state: State) -> State:
-        """BreakReviewer: safety sweep of both scenes, hard block again, then the review of each break."""
+        """BreakReviewer step 2: hard block once more on the swept scenes, then review each break."""
         st = self.settings
-        plans, scenes, sweeps = list(state["plans"]), list(state["scenes"]), dict(state["sweeps"])
+        plans, scenes = list(state["plans"]), state["scenes"]
         brands = {b.id: b for b in state["brands"]}
-        targets = [i for i, p in enumerate(plans) if p.status == "needs_review"]
-
-        need = sorted({k for i in targets for k in (plans[i].before, plans[i].after)} - set(sweeps))
-        found = await asyncio.gather(
-            *[sweep_scene(self.vision, self.video, self.frames_dir, scenes[k], st) for k in need]
-        )
-        for k, result in zip(need, found, strict=True):
-            sweeps[k] = result
-            scenes[k] = apply_sweep(scenes[k], result, st.scenes.min_confidence)
-
         to_review: list[int] = []
-        for i in targets:
-            p = plans[i]
-            brand = brands[p.choice.brand_id]  # type: ignore[union-attr]
-            tags = blocking_tags(brand, scenes[p.before], scenes[p.after])
-            if not tags:
-                to_review.append(i)
+        for i, p in enumerate(plans):
+            if p.status != "needs_review":
                 continue
-            note = f"blocked after sweep: {', '.join(tags)}"
-            unknown = tags == [UNKNOWN_SCENE]
-            plans[i] = p.model_copy(update={
-                "status": "promo" if unknown else "retry_brand",
-                "history": [*p.history, note],
-                "reason": note + ("; promo slot" if unknown else "; trying another brand"),
-            })  # fmt: skip
+            tags = blocking_tags(brands[p.choice.brand_id], scenes[p.before], scenes[p.after])  # type: ignore[union-attr]
+            if tags:
+                note = f"blocked at review: {', '.join(tags)}"
+                plans[i] = p.model_copy(
+                    update={"status": "retry_brand", "history": [*p.history, note], "reason": note}
+                )
+            else:
+                to_review.append(i)
 
-        p_all = state["perception"]
+        perception = state["perception"]
         reviews = await asyncio.gather(
             *[
-                review_break(self.vision, self.video, self.frames_dir, p_all.speech, p_all.duration_s,
+                review_break(self.vision, self.video, self.frames_dir, perception.speech, perception.duration_s,
                              plans[i].candidate, scenes[plans[i].before], scenes[plans[i].after],
                              brands[plans[i].choice.brand_id], st)  # type: ignore[union-attr]
                 for i in to_review
@@ -266,26 +274,58 @@ class Pipeline:
                 update.update(status=status, reason=f"reviewer vetoed: {verdict.reason}",
                               vetoed_brands=[*p.vetoed_brands, brand_id] if status == "retry_brand" else p.vetoed_brands)  # fmt: skip
             plans[i] = p.model_copy(update=update)
+        return {"plans": plans}
 
-        loops, excluded, repace = state["loops"], list(state["excluded"]), False
-        exhausted = loops >= st.reviewer.max_loops
-        retrying = False
+    async def settle(self, state: State) -> State:
+        """Decide what needs another pass: another break point, or another brand, within the loop budget.
+
+        A break with no allowed brand (blocked) or a vetoed break point is excluded from pacing so the solver
+        picks the next-best option. A blocked break stays in the plan list: ``finalize`` turns it into a
+        promo slot if there is room, once the loops are used up.
+        """
+        excluded, plans = list(state["excluded"]), list(state["plans"])
+        exhausted = state["loops"] >= self.settings.reviewer.max_loops
+        repace = retry_brand = False
         for i, p in enumerate(plans):
+            t = p.candidate.t
             if p.status == "retry_candidate":
                 note = "loop limit reached: break dropped" if exhausted else "trying the next break point"
                 plans[i] = p.model_copy(update={"status": "dropped", "reason": f"{p.reason}; {note}"})
-                if not exhausted:
-                    excluded.append(p.candidate.t)
-                    repace = retrying = True
+            if p.status in ("retry_candidate", "blocked") and not exhausted and t not in excluded:
+                excluded.append(t)
+                repace = True
             elif p.status == "retry_brand":
                 if exhausted:
                     plans[i] = p.model_copy(
                         update={"status": "promo", "reason": f"{p.reason}; loop limit reached: promo slot"}
                     )
                 else:
-                    retrying = True
-        return {"plans": plans, "scenes": scenes, "sweeps": sweeps, "excluded": excluded, "repace": repace,
-                "loops": loops + 1 if retrying else loops}  # fmt: skip
+                    retry_brand = True
+        return {"plans": plans, "excluded": excluded, "repace": repace,
+                "loops": state["loops"] + 1 if repace or retry_brand else state["loops"]}  # fmt: skip
+
+    async def finalize(self, state: State) -> State:
+        """Turn breaks that are still blocked into promo slots where the pacing rules leave room, else drop them."""
+        pacing, duration = self.settings.pacing, state["perception"].duration_s
+        plans = list(state["plans"])
+        placed = [p.candidate.t for p in plans if p.status in ("approved", "promo")]
+        blocked = sorted(
+            (i for i, p in enumerate(plans) if p.status == "blocked"), key=lambda i: -plans[i].break_score
+        )
+        for i in blocked:
+            p = plans[i]
+            if can_add(placed, p.candidate.t, duration, pacing):
+                placed.append(p.candidate.t)
+                note = "no allowed brand and no better break point: promo slot"
+                plans[i] = p.model_copy(
+                    update={"status": "promo", "history": [*p.history, note], "reason": note}
+                )
+            else:
+                note = "no allowed brand and no room for a promo under the pacing rules: dropped"
+                plans[i] = p.model_copy(
+                    update={"status": "dropped", "history": [*p.history, note], "reason": note}
+                )
+        return {"plans": plans}
 
     async def emit(self, state: State) -> State:
         """Write the brand and promo slates, vmap.xml and debug.json."""
@@ -334,21 +374,34 @@ class Pipeline:
         return {"report": report, "vmap": vmap}
 
     def build(self) -> Any:
-        """Wire the graph. The veto edge goes back to ``match`` or ``pace``."""
+        """Wire the graph. After ``settle`` the loop goes back to ``pace`` or ``sweep`` (then match), or on."""
         g = StateGraph(State)
         for name, fn in [
             ("catalogue", self.catalogue), ("measure", self.measure), ("analyse", self.analyse),
             ("boundaries", self.boundaries), ("scenes", self.scenes), ("pace", self.pace),
-            ("match", self.match), ("review", self.review), ("emit", self.emit),
+            ("sweep", self.sweep), ("match", self.match), ("review", self.review),
+            ("settle", self.settle), ("finalize", self.finalize), ("emit", self.emit),
         ]:  # fmt: skip
             g.add_node(name, fn)
-        chain = ["catalogue", "measure", "analyse", "boundaries", "scenes", "pace", "match", "review"]
+        chain = [
+            "catalogue",
+            "measure",
+            "analyse",
+            "boundaries",
+            "scenes",
+            "pace",
+            "sweep",
+            "match",
+            "review",
+            "settle",
+        ]
         g.add_edge(START, chain[0])
         for a, b in pairwise(chain):
             g.add_edge(a, b)
         g.add_conditional_edges(
-            "review", route_after_review, {"pace": "pace", "match": "match", "emit": "emit"}
+            "settle", route_after_settle, {"pace": "pace", "sweep": "sweep", "finalize": "finalize"}
         )
+        g.add_edge("finalize", "emit")
         g.add_edge("emit", END)
         return g.compile()
 
@@ -371,6 +424,7 @@ async def run_pipeline(
     :raises AdlyserError: if measurement or the catalogue cannot be read (LLM failures fall back safely).
     """
     pipe = Pipeline(video, settings, out_dir, base_url)
+    preload = asyncio.create_task(pipe.embedder.preload())  # overlaps the model load with measurement
     final: State = {}
     async for chunk in pipe.build().astream(
         {}, stream_mode="updates", config={"recursion_limit": RECURSION_LIMIT}
@@ -381,4 +435,5 @@ async def run_pipeline(
             log.info("node_done", extra={"node": node, "elapsed_s": elapsed})
             if on_event:
                 on_event(node, elapsed)
+    await preload
     return final["report"]

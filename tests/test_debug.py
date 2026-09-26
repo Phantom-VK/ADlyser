@@ -12,7 +12,7 @@ from adlyser.schemas import (
     ShortlistEntry,
     Stretch,
     StretchAnalysis,
-    SweepResult,
+    SweepRecord,
 )
 
 T = SafetyTag
@@ -44,7 +44,7 @@ def report(plans, verdicts, cands, vetoed=()):
         video="v.mp4", duration_s=300, funnel=FUNNEL, candidates=cands, verdicts=verdicts,
         stretches=[Stretch(index=i, start=i * 100, end=(i + 1) * 100) for i in range(3)],
         analyses=[ANALYSIS] * 3, traces=[[], [], []], base_scenes=base, scenes=swept,
-        sweeps={1: SweepResult(safety_tags=[T.DEATH_GRIEF], evidence="a funeral insert", confidence=0.8)},
+        sweeps={1: SweepRecord(safety_tags=[T.DEATH_GRIEF], unsure_tags=[], evidence="a funeral insert", ok=True, full_coverage=True, frames=9)},
         plans=plans, vetoed_times=list(vetoed), brands=[FOOD], break_ids={100: "break-1"},
         min_break_score=0.5, llm_stats={}, loops=1, wall_s=1.0,
     )  # fmt: skip
@@ -52,6 +52,7 @@ def report(plans, verdicts, cands, vetoed=()):
 
 def plan(t, status, brand_id=None, blocked=()):
     choice = BrandChoice(
+        kind="brand" if brand_id else "blocked",
         brand_id=brand_id,
         shortlist=[ShortlistEntry(brand_id="food", name="Food", similarity=0.4, fit=0.9, reason="r")],
         blocked=[BlockedModel(brand_id="food", tags=list(blocked))] if blocked else [],
@@ -92,7 +93,7 @@ def test_break_record_shows_sweep_added_tags_and_the_blocking_tag():
 def test_scene_records_list_what_the_sweep_added():
     out = report([plan(100, "approved", "food")], [verdict()], [cand(100)])
     assert [s.sweep_added for s in out.scenes] == [[], [T.DEATH_GRIEF], []]
-    assert out.scenes[1].sweep_evidence == "a funeral insert"
+    assert out.scenes[1].sweep.evidence == "a funeral insert" and out.scenes[1].sweep.full_coverage
 
 
 def test_an_approved_break_names_its_brand_and_id():

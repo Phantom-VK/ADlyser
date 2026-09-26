@@ -116,7 +116,9 @@ async def test_unknown_scene_gives_a_promo_slot_and_blocks_everyone():
     for before, after in [(scene("a", unknown=True), scene("b")), (scene("a"), scene("b", unknown=True))]:
         client = FakeText(rank(("food", 1.0)))
         out = await match_brand(KeywordEmbedder(), client, ALL, before, after, set(), CFG)
-        assert out.brand_id is None and len(out.blocked) == 3 and client.prompt is None
+        assert (
+            out.brand_id is None and out.kind == "blocked" and len(out.blocked) == 3 and client.prompt is None
+        )
 
 
 async def test_excluded_brands_are_skipped():
@@ -125,7 +127,21 @@ async def test_excluded_brands_are_skipped():
     assert "id=food" not in client.prompt and out.brand_id == "rides"
 
 
-async def test_no_eligible_brand_gives_a_promo_slot():
+async def test_when_every_brand_is_blocked_the_kind_is_blocked_so_the_graph_can_try_another_break():
+    out = await match_brand(
+        KeywordEmbedder(), FakeText(rank()), [FOOD], scene("a", {T.DEATH_GRIEF}), scene("b"), set(), CFG
+    )
+    assert out.kind == "blocked" and out.brand_id is None
+
+
+async def test_vetoed_brands_exhausting_the_pool_is_not_a_block():
+    out = await match_brand(
+        KeywordEmbedder(), FakeText(rank()), ALL, scene("a"), scene("b"), {"food", "rides", "rings"}, CFG
+    )
+    assert out.kind == "no_fit" and out.brand_id is None
+
+
+async def test_no_eligible_brand_gives_no_brand():
     out = await match_brand(
         KeywordEmbedder(),
         FakeText(rank()),
@@ -138,11 +154,11 @@ async def test_no_eligible_brand_gives_a_promo_slot():
     assert out.brand_id is None
 
 
-async def test_a_poor_fit_gives_a_promo_slot():
+async def test_a_poor_fit_gives_no_brand_and_is_not_a_block():
     out = await match_brand(
         KeywordEmbedder(), FakeText(rank(("food", 0.1))), ALL, scene("cooking"), scene("x"), set(), CFG
     )
-    assert out.brand_id is None and out.reason.startswith("no brand fits")
+    assert out.brand_id is None and out.kind == "no_fit" and out.reason.startswith("no brand fits")
 
 
 async def test_rerank_failure_falls_back_to_embedding_order():
