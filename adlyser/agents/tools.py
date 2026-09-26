@@ -7,7 +7,9 @@ from typing import Any
 from adlyser.config import FramesConfig
 from adlyser.errors import PerceptionError
 from adlyser.llm.agent_loop import Tool
+from adlyser.llm.prompts import speech_text
 from adlyser.perception.keyframes import extract_frames
+from adlyser.schemas import SpeechSeg
 
 MAX_LOOK_FRAMES = 6
 
@@ -53,3 +55,31 @@ def look_closer(video: Path, frames_dir: Path, cfg: FramesConfig, duration_s: fl
         return f"{n} frames follow, taken at {', '.join(f'{t:.0f}s' for t in times)}.", frames
 
     return Tool(spec=_LOOK_CLOSER_SPEC, run=run, detail="high")
+
+
+_SPEECH_MAP_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "speech_map",
+        "description": "List where speech is present between t0 and t1, in seconds from the start of the episode.",
+        "parameters": {
+            "type": "object",
+            "properties": {"t0": {"type": "number"}, "t1": {"type": "number"}},
+            "required": ["t0", "t1"],
+        },
+    },
+}
+
+
+def speech_map(speech: list[SpeechSeg]) -> Tool:
+    """Build the ``speech_map`` tool (text only, from the measured speech map).
+
+    :param speech: all speech spans of the video.
+    :return: the tool.
+    """
+
+    async def run(args: dict[str, Any]) -> tuple[str, list[bytes]]:
+        """Return the speech spans inside the requested window."""
+        return speech_text(speech, float(args["t0"]), float(args["t1"])), []
+
+    return Tool(spec=_SPEECH_MAP_SPEC, run=run)
