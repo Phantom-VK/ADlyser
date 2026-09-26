@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,15 @@ def content_key(*parts: Any) -> str:
     """
     blob = json.dumps(parts, sort_keys=True, default=str, ensure_ascii=False)
     return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def unique_tmp(path: Path) -> Path:
+    """A temp path next to ``path`` that no other writer can share (write there, then ``replace``).
+
+    :param path: the final path.
+    :return: ``<name>.<random>.tmp`` in the same directory, so the rename stays atomic.
+    """
+    return path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
 
 
 class DiskCache:
@@ -52,7 +62,7 @@ class DiskCache:
         """
         path = self._path(namespace, key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        tmp = unique_tmp(path)
         tmp.write_text(json.dumps(value, ensure_ascii=False))
         tmp.replace(path)
 

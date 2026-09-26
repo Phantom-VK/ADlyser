@@ -134,3 +134,8 @@ def test_an_approved_break_names_its_brand_and_id():
     out = report([plan(100, "approved", "food")], [verdict()], [cand(100)])
     b = out.breaks[0]
     assert (b.outcome, b.brand_id, b.brand_name, b.break_id) == ("brand", "food", "Food", "break-1")
+
+
+def test_the_report_records_the_score_threshold_so_the_ui_can_explain_zero_breaks():
+    out = report([], [verdict(True, 0.3)], [cand(100)])
+    assert out.min_break_score == 0.5 and out.candidates[0].status == "below_min_score"

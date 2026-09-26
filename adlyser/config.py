@@ -12,6 +12,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from adlyser.schemas import SafetyTag
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -27,6 +29,7 @@ class Endpoint(BaseModel):
 class LlmConfig(BaseModel):
     """LLM endpoints and call limits."""
 
+    temperature: float
     concurrency: int = 8
     timeout_s: float = 120
     vision: Endpoint
@@ -71,6 +74,8 @@ class CandidateConfig(BaseModel):
     speech_guard_s: float
     skip_start_s: float
     skip_end_s: float
+    skip_start_fraction: float
+    skip_end_fraction: float
     min_spacing_s: float
     max_candidates: int
     allow_long_silence_without_cut: bool
@@ -84,6 +89,7 @@ class PacingConfig(BaseModel):
     min_gap_s: float
     ad_duration_s: float
     max_ad_load_pct: float
+    min_duration_for_break_s: float
     min_break_score: float
 
 
@@ -116,9 +122,23 @@ class ScenesConfig(BaseModel):
 
 
 class CatalogueConfig(BaseModel):
-    """Where the raw brand catalogue lives."""
+    """Where the raw brand catalogue lives, the brands added from the UI, and the merged file a run reads."""
 
     path: Path
+    added_path: Path
+    working_path: Path
+    default_negative_tags: list[SafetyTag]
+
+
+class ApiConfig(BaseModel):
+    """Web API settings: uploads, thumbnails and progress streams."""
+
+    uploads_dir: Path
+    upload_max_mb: int
+    upload_suffixes: list[str]
+    frame_step_s: float
+    large_frame_width: int
+    events_poll_s: float
 
 
 class MatcherConfig(BaseModel):
@@ -176,6 +196,7 @@ class Settings(BaseSettings):
     boundary: BoundaryConfig
     scenes: ScenesConfig
     catalogue: CatalogueConfig
+    api: ApiConfig
     matcher: MatcherConfig
     reviewer: ReviewerConfig
     creatives: CreativesConfig

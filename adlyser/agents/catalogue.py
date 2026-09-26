@@ -9,7 +9,7 @@ from adlyser.errors import CatalogueError
 from adlyser.llm.client import LLMClient
 from adlyser.llm.prompts import CATALOGUE_NORMALISER, with_schema
 from adlyser.log import get_logger
-from adlyser.schemas import Brand, NormalisedCatalogue
+from adlyser.schemas import Brand, NormalisedCatalogue, SafetyTag
 
 log = get_logger(__name__)
 EMPTY = NormalisedCatalogue(brands=[])
@@ -24,10 +24,14 @@ def slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def to_brands(catalogue: NormalisedCatalogue) -> list[Brand]:
-    """Give each brand a unique id derived from its name.
+def to_brands(catalogue: NormalisedCatalogue, default_negative_tags: list[SafetyTag]) -> list[Brand]:
+    """Give each brand a unique id and the default negative tags every brand must honour.
+
+    A brand that states no negatives of its own would otherwise pass the hard block at every break, so the
+    floor is unioned into its tags (and the brand is logged).
 
     :param catalogue: normalised brands.
+    :param default_negative_tags: tags added to every brand's negative tags.
     :return: brands with unique ids, in input order.
     """
     brands: list[Brand] = []
@@ -38,7 +42,10 @@ def to_brands(catalogue: NormalisedCatalogue) -> list[Brand]:
         while bid in used:
             bid, n = f"{base}-{n}", n + 1
         used.add(bid)
-        brands.append(Brand(id=bid, **nb.model_dump()))
+        if not nb.negative_tags:
+            log.warning("brand_without_negatives", extra={"brand": nb.name})
+        tags = sorted({*nb.negative_tags, *default_negative_tags})
+        brands.append(Brand(id=bid, **{**nb.model_dump(), "negative_tags": tags}))
     return brands
 
 
@@ -51,7 +58,9 @@ async def _normalise_text(client: LLMClient, text: str) -> NormalisedCatalogue:
     return await client.chat_json("catalogue_normaliser", messages, NormalisedCatalogue, EMPTY)
 
 
-async def normalise_catalogue(client: LLMClient, raw: str) -> list[Brand]:
+async def normalise_catalogue(
+    client: LLMClient, raw: str, default_negative_tags: list[SafetyTag]
+) -> list[Brand]:
     """Normalise raw catalogue text. If a call fails its brands are omitted, so they are never placed.
 
     A JSON list is normalised one record per call, in parallel, each cached by its own content: adding a
@@ -59,6 +68,7 @@ async def normalise_catalogue(client: LLMClient, raw: str) -> list[Brand]:
 
     :param client: the text client.
     :param raw: the catalogue file content, in any format.
+    :param default_negative_tags: tags every brand gets on top of its own.
     :return: the normalised brands.
     """
     try:
@@ -69,8 +79,10 @@ async def normalise_catalogue(client: LLMClient, raw: str) -> list[Brand]:
         parts = await asyncio.gather(
             *[_normalise_text(client, json.dumps(r, ensure_ascii=False, sort_keys=True)) for r in records]
         )
-        return to_brands(NormalisedCatalogue(brands=[b for part in parts for b in part.brands]))
-    return to_brands(await _normalise_text(client, raw))
+        return to_brands(
+            NormalisedCatalogue(brands=[b for part in parts for b in part.brands]), default_negative_tags
+        )
+    return to_brands(await _normalise_text(client, raw), default_negative_tags)
 
 
 def read_catalogue(path: Path) -> str:

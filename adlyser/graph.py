@@ -8,7 +8,7 @@ testable without the framework.
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from itertools import pairwise
 from pathlib import Path
 from typing import Any, TypedDict
@@ -22,13 +22,14 @@ from adlyser.agents.reviewer import review_break, sweep_scene
 from adlyser.agents.stretch_analyst import analyse_stretch
 from adlyser.cache import DiskCache, file_fingerprint
 from adlyser.config import Settings
-from adlyser.emit.creatives import make_slate
+from adlyser.emit.creatives import make_slate, slate_name
 from adlyser.emit.debug import build_debug
 from adlyser.emit.vmap import build_vmap
+from adlyser.errors import PerceptionError
 from adlyser.llm.client import make_clients
 from adlyser.llm.embed import Embedder
 from adlyser.log import get_logger
-from adlyser.perception.measure import measure_signals
+from adlyser.perception.measure import measure_signals, measure_transcript
 from adlyser.rules.candidates import find_candidates
 from adlyser.rules.pacing import can_add, select_breaks
 from adlyser.rules.safety import apply_sweep, blocking_scenes, blocking_tags
@@ -51,6 +52,7 @@ from adlyser.schemas import (
 
 log = get_logger(__name__)
 RECURSION_LIMIT = 60
+PINNED = ("approved", "promo", "retry_brand")  # plans a re-pace must keep
 
 
 class State(TypedDict, total=False):
@@ -92,34 +94,75 @@ def route_after_settle(state: State) -> str:
 class Pipeline:
     """Holds the clients and paths for one video and provides the graph nodes."""
 
-    def __init__(self, video: Path, settings: Settings, out_dir: Path, base_url: str = "") -> None:
+    on_progress: Callable[[dict[str, Any]], None] | None = None
+
+    def __init__(
+        self,
+        video: Path,
+        settings: Settings,
+        out_dir: Path,
+        base_url: str = "",
+        embedder: Embedder | None = None,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         """Create the pipeline for one video.
 
         :param video: path to the video.
         :param settings: loaded settings.
         :param out_dir: where vmap.xml and debug.json go.
         :param base_url: prefix for creative URLs (empty gives root-relative URLs).
+        :param embedder: an already loaded embedder to share (the API loads it once at startup).
+        :param on_progress: called with a detail event (``node``, ``text``, optional ``done``/``total``/``stage``).
         """
+        self.on_progress = on_progress
         self.video = video
         self.settings = settings
         self.out_dir = out_dir
         self.base_url = base_url
         self.vision, self.text = make_clients(settings)
-        self.embedder = Embedder(settings.matcher.embed_model, DiskCache(settings.cache_dir / "embeddings"))
+        self.embedder = embedder or Embedder(
+            settings.matcher.embed_model, DiskCache(settings.cache_dir / "embeddings")
+        )
         self.frames_dir = settings.cache_dir / "frames" / file_fingerprint(video)
         self.started = time.perf_counter()
 
+    def _note(self, node: str, text: str, **extra: Any) -> None:
+        """Report what a node is doing, if anyone listens."""
+        if self.on_progress:
+            self.on_progress({"node": node, "text": text, **extra})
+
+    async def _gather[T](self, node: str, label: str, coros: list[Awaitable[T]]) -> list[T]:
+        """``asyncio.gather`` that reports ``<label> n of total`` as each item finishes; results keep their order."""
+        total, done = len(coros), 0
+
+        async def one(coro: Awaitable[T]) -> T:
+            nonlocal done
+            result = await coro
+            done += 1
+            self._note(node, f"{label} {done} of {total}", done=done, total=total)
+            return result
+
+        return list(await asyncio.gather(*(one(c) for c in coros)))
+
     async def catalogue(self, state: State) -> State:
         """Normalise the brand catalogue (cached; any format)."""
+        self._note("catalogue", "Reading the brand catalogue")
         raw = read_catalogue(self.settings.catalogue.path)
-        return {"brands": await normalise_catalogue(self.text, raw)}
+        floor = self.settings.catalogue.default_negative_tags
+        return {"brands": await normalise_catalogue(self.text, raw, floor)}
 
     async def measure(self, state: State) -> State:
-        """Measure speech and cuts, then find candidate pauses and the stretches between them."""
+        """Measure speech and cuts, find candidate pauses and the stretches, then add the optional transcript."""
+        self._note("measure", "Measuring speech, silence and cuts")
         perception = await asyncio.to_thread(measure_signals, self.video, self.settings)
+        self._note("measure", "Finding pauses inside the silences", stage="signals")
         found = find_candidates(
             perception.speech, perception.cuts, perception.duration_s, self.settings.candidates
         )
+        try:  # candidates never wait on the transcript, and nothing downstream requires it
+            perception = await asyncio.to_thread(measure_transcript, perception, self.settings)
+        except PerceptionError as exc:
+            log.error("transcript_failed", extra={"error": str(exc)[:200]})
         return {
             "perception": perception,
             "found": found,
@@ -129,21 +172,22 @@ class Pipeline:
     async def analyse(self, state: State) -> State:
         """StretchAnalyst on every stretch, in parallel."""
         p = state["perception"]
-        results = await asyncio.gather(
-            *[
+        results = await self._gather(
+            "analyse",
+            "Analysing stretch",
+            [
                 analyse_stretch(
                     self.vision, self.video, self.frames_dir, s, p.transcript, p.duration_s, self.settings
                 )
                 for s in state["stretches"]
-            ]
+            ],
         )
         return {"analyses": [a for a, _ in results], "traces": [t for _, t in results]}
 
     async def boundaries(self, state: State) -> State:
         """BoundaryJudge on every candidate, in parallel."""
         p, analyses = state["perception"], state["analyses"]
-        verdicts = await asyncio.gather(
-            *[
+        verdicts = await self._gather("boundaries", "Judging boundary", [
                 judge_boundary(
                     self.vision, self.video, self.frames_dir, c, analyses[i], analyses[i + 1],
                     p.transcript, p.duration_s, self.settings,
@@ -171,11 +215,20 @@ class Pipeline:
                 "sweeps": {}, "loops": 0, "repace": False}  # fmt: skip
 
     async def pace(self, state: State) -> State:
-        """PacingSolver: choose breaks among the confirmed changes the reviewer has not excluded."""
+        """PacingSolver: choose breaks among the confirmed changes the reviewer has not excluded.
+
+        Breaks already approved (or promo, or being re-matched) are pinned: they stay, count against the caps
+        and keep their gap. Every plan that is not chosen again stays in the list, whatever its status.
+        """
         excluded = set(state["excluded"])
         options = [o for o in state["options"] if o.candidate.t not in excluded]
-        chosen = select_breaks(options, state["perception"].duration_s, self.settings.pacing)
         old = {p.candidate.t: p for p in state["plans"]}
+        pinned = [
+            BreakOption(candidate=p.candidate, break_score=p.break_score)
+            for p in state["plans"]
+            if p.status in PINNED
+        ]
+        chosen = select_breaks(options, state["perception"].duration_s, self.settings.pacing, pinned)
         plans: list[BreakPlan] = []
         for o in chosen:
             t = o.candidate.t
@@ -186,11 +239,7 @@ class Pipeline:
             plans.append(BreakPlan(candidate=o.candidate, break_score=o.break_score, before=before, after=after,
                                    status="needs_brand"))  # fmt: skip
         chosen_times = {p.candidate.t for p in plans}
-        history = [
-            p
-            for p in state["plans"]
-            if p.status in ("dropped", "blocked") and p.candidate.t not in chosen_times
-        ]
+        history = [p for p in state["plans"] if p.candidate.t not in chosen_times]
         return {"plans": [*plans, *history], "repace": False}
 
     async def sweep(self, state: State) -> State:
@@ -202,8 +251,10 @@ class Pipeline:
         scenes, sweeps = list(state["scenes"]), dict(state["sweeps"])
         waiting = [p for p in state["plans"] if p.status in ("needs_brand", "retry_brand")]
         need = sorted({k for p in waiting for k in (p.before, p.after)} - set(sweeps))
-        records = await asyncio.gather(
-            *[sweep_scene(self.vision, self.video, self.frames_dir, scenes[k], self.settings) for k in need]
+        records = await self._gather(
+            "sweep",
+            "Sweeping scene",
+            [sweep_scene(self.vision, self.video, self.frames_dir, scenes[k], self.settings) for k in need],
         )
         for k, record in zip(need, records, strict=True):
             sweeps[k] = record
@@ -215,8 +266,7 @@ class Pipeline:
         scenes, brands = state["scenes"], state["brands"]
         plans = list(state["plans"])
         todo = [i for i, p in enumerate(plans) if p.status in ("needs_brand", "retry_brand")]
-        choices = await asyncio.gather(
-            *[
+        choices = await self._gather("match", "Matching brands for break", [
                 match_brand(self.embedder, self.text, brands, scenes[plans[i].before], scenes[plans[i].after],
                             set(plans[i].vetoed_brands), self.settings.matcher)
                 for i in todo
@@ -255,8 +305,7 @@ class Pipeline:
                 to_review.append(i)
 
         perception = state["perception"]
-        reviews = await asyncio.gather(
-            *[
+        reviews = await self._gather("review", "Reviewing break", [
                 review_break(self.vision, self.video, self.frames_dir, perception.speech, perception.duration_s,
                              plans[i].candidate, scenes[plans[i].before], scenes[plans[i].after],
                              brands[plans[i].choice.brand_id], st)  # type: ignore[union-attr]
@@ -318,7 +367,8 @@ class Pipeline:
                 "loops": state["loops"] + 1 if repace or retry_brand else state["loops"]}  # fmt: skip
 
     async def finalize(self, state: State) -> State:
-        """Turn breaks that are still blocked into promo slots where the pacing rules leave room, else drop them."""
+        """Settle the breaks that are still blocked: no fit becomes a promo where pacing has room; a break where
+        every brand is blocked (or a scene is unknown) is dropped, never papered over with a promo."""
         pacing, duration = self.settings.pacing, state["perception"].duration_s
         plans = list(state["plans"])
         placed = [p.candidate.t for p in plans if p.status in ("approved", "promo")]
@@ -327,14 +377,19 @@ class Pipeline:
         )
         for i in blocked:
             p = plans[i]
-            if can_add(placed, p.candidate.t, duration, pacing):
+            no_fit = p.choice is not None and p.choice.kind == "no_fit"
+            if no_fit and can_add(placed, p.candidate.t, duration, pacing):
                 placed.append(p.candidate.t)
-                note = "no allowed brand and no better break point: promo slot"
+                note = "no brand fits well and no better break point: promo slot"
                 plans[i] = p.model_copy(
                     update={"status": "promo", "history": [*p.history, note], "reason": note}
                 )
             else:
-                note = "no allowed brand and no room for a promo under the pacing rules: dropped"
+                note = (
+                    "no room for a promo under the pacing rules: dropped"
+                    if no_fit
+                    else "every brand is blocked or the scene is unknown: break dropped"
+                )
                 plans[i] = p.model_copy(
                     update={"status": "dropped", "history": [*p.history, note], "reason": note}
                 )
@@ -342,6 +397,7 @@ class Pipeline:
 
     async def emit(self, state: State) -> State:
         """Write the brand and promo slates, vmap.xml and debug.json."""
+        self._note("emit", "Writing the manifest and the debug report")
         st = self.settings
         live = sorted(
             (p for p in state["plans"] if p.status in ("approved", "promo")), key=lambda p: p.candidate.t
@@ -350,11 +406,12 @@ class Pipeline:
         creatives_dir = st.data_dir / "creatives"
 
         async def creative(ad_id: str, title: str, subtitle: str) -> Creative:
-            path = creatives_dir / f"{ad_id}.mp4"
+            supplied = creatives_dir / f"{ad_id}.mp4"  # a clip dropped in by hand wins over the slate
+            path = supplied if supplied.exists() else creatives_dir / slate_name(ad_id, title, subtitle)
             if not path.exists():
                 await asyncio.to_thread(make_slate, title, subtitle, path, st.creatives)
             return Creative(ad_id=ad_id, title=title, duration_s=st.creatives.duration_s,
-                            media_url=f"{self.base_url}/{path.as_posix()}", width=st.creatives.width,
+                            media_url=f"{self.base_url}/data/creatives/{path.name}", width=st.creatives.width,
                             height=st.creatives.height)  # fmt: skip
 
         specs: list[AdBreakSpec] = []
@@ -425,6 +482,8 @@ async def run_pipeline(
     out_dir: Path,
     base_url: str = "",
     on_event: Callable[[str, float], None] | None = None,
+    embedder: Embedder | None = None,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> DebugReport:
     """Run the whole pipeline on one video and write vmap.xml and debug.json to ``out_dir``.
 
@@ -433,10 +492,12 @@ async def run_pipeline(
     :param out_dir: output directory.
     :param base_url: prefix for creative URLs.
     :param on_event: called as ``on_event(node, elapsed_s)`` when each node finishes (progress events).
+    :param embedder: an already loaded embedder to share between runs.
+    :param on_progress: called with detail events while a node works ("Analysing stretch 7 of 20").
     :return: the debug report.
     :raises AdlyserError: if measurement or the catalogue cannot be read (LLM failures fall back safely).
     """
-    pipe = Pipeline(video, settings, out_dir, base_url)
+    pipe = Pipeline(video, settings, out_dir, base_url, embedder, on_progress)
     preload = asyncio.create_task(pipe.embedder.preload())  # overlaps the model load with measurement
     final: State = {}
     async for chunk in pipe.build().astream(

@@ -56,15 +56,15 @@ def apply_sweep(scene: Scene, sweep: SweepRecord) -> Scene:
     """Fold a safety sweep into a scene.
 
     Seen and unsure tags are both added (unsure counts as present; tags are never removed). A sweep that
-    succeeded AND covered the whole scene at the configured interval clears ``unknown`` (dense evidence
-    replaces sparse). A failed or capped sweep leaves ``unknown`` as it was.
+    succeeded, covered the whole scene at the configured interval AND lost no tag to a bad citation clears
+    ``unknown`` (dense evidence replaces sparse). Otherwise ``unknown`` stays as it was.
 
     :param scene: the scene.
     :param sweep: the sweep record for that scene.
     :return: the updated scene.
     """
     out = add_sweep_tags(scene, [*sweep.safety_tags, *sweep.unsure_tags])
-    if sweep.ok and sweep.full_coverage:
+    if sweep.ok and sweep.full_coverage and not sweep.dropped:
         out = out.model_copy(update={"unknown": False})
     return out
 

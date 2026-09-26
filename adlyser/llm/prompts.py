@@ -49,8 +49,9 @@ into a fixed schema. Every brand in the input must appear exactly once in the ou
 - negative_contexts_raw: the input's own words about when the brand must NOT appear, split into
   short phrases. Copy them faithfully; never drop one.
 - negative_tags: map EVERY negative context to the tags of this fixed list that it implies, and use
-  only these exact values: {_TAXONOMY}. Be inclusive: when a phrase could imply several tags,
-  include them all (e.g. "illness" -> medical_illness; "mourning" -> death_grief, funeral_ritual).
+  only these exact values: {_TAXONOMY}. Map each phrase to the tags it directly names; do not add
+  adjacent tags (e.g. "illness" -> medical_illness only; "mourning" -> death_grief, funeral_ritual,
+  because mourning names both a death and its rites).
 - Reply with JSON only."""
 
 BRAND_RERANK = """You choose the best brand to advertise in a break in a Bengali TV drama.
@@ -92,6 +93,11 @@ words, when it must NOT appear.
   moment is a poor break for any ad) or promo (show a neutral house promo instead of a brand).
 - You may call the tools to look closer at frames or read the speech map before you decide.
 - Reply with JSON only."""
+
+
+FIX_JSON = (
+    "Your previous reply was not valid JSON for the schema. Reply again with only the corrected JSON object."
+)
 
 
 def with_schema(system: str, model: type[BaseModel]) -> str:

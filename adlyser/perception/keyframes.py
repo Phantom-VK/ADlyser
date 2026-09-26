@@ -5,6 +5,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from adlyser.cache import unique_tmp
 from adlyser.config import BoundaryConfig, FramesConfig, ReviewerConfig, StretchConfig
 from adlyser.errors import PerceptionError
 from adlyser.log import get_logger
@@ -91,7 +92,7 @@ def extract_frames(video: Path, times: list[float], cfg: FramesConfig, cache_dir
         if path.exists():
             return path.read_bytes()
         jpg = _extract(video, t, cfg)
-        tmp = path.with_suffix(".tmp")
+        tmp = unique_tmp(path)
         tmp.write_bytes(jpg)
         tmp.replace(path)
         return jpg

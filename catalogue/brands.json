@@ -1,66 +1,225 @@
 [
   {
-    "brand": "Annapurna Rasoi",
-    "sector": "Packaged Bengali ready meals",
-    "slogan": "Ghorer swad, ek minute-e",
-    "about": "Ready-to-heat Bengali home meals: khichuri, luchi-torkari, shukto. Sold in every neighbourhood grocery.",
-    "ideal_moments": "cooking, family meals, hungry evenings, people coming home, festive gatherings",
-    "never_show_after": "death, funeral, illness"
+    "name": "Lotus Lassi",
+    "category": "Beverage",
+    "tagline": "Thanda, meethi, ghorer moto",
+    "description": "A chilled lassi and yogurt drink brand made for everyday refreshment, family meals, and casual breaks.",
+    "target_contexts": [
+      "summer scenes",
+      "family get-togethers",
+      "adda with friends",
+      "waiting or travel breaks",
+      "lunch and meal scenes"
+    ],
+    "negative_contexts": [
+      "funerals and mourning",
+      "hospital or illness scenes",
+      "violence",
+      "heated fights"
+    ]
   },
   {
-    "brand": "Shubho Chai",
-    "sector": "Tea",
-    "slogan": "Ek cup shantir sathe",
-    "about": "Loose-leaf and tea-bag blends from small Darjeeling and Dooars gardens.",
-    "ideal_moments": "relaxed conversation, morning routines, adda with friends, rainy days, waiting, travel breaks",
-    "never_show_after": "funerals and mourning, scenes of violence, heated fights"
+    "name": "Grain & Grove",
+    "category": "Food",
+    "tagline": "Good food, simply made",
+    "description": "A modern packaged-food brand offering wholesome grains, breakfast mixes, and ready-to-cook meals for busy households.",
+    "target_contexts": [
+      "cooking scenes",
+      "family breakfasts",
+      "grocery shopping",
+      "office lunch breaks",
+      "busy morning routines"
+    ],
+    "negative_contexts": [
+      "funerals and mourning",
+      "hospital or illness scenes",
+      "hunger and poverty",
+      "strong arguments"
+    ]
   },
   {
-    "brand": "Nirapod Bima",
-    "sector": "Family insurance",
-    "slogan": "Apnar poribar, amader dayitwo",
-    "about": "Term life and health cover for middle-class families.",
-    "ideal_moments": "family time, home life, parents and children, planning for the future",
-    "never_show_after": "graphic violence, abuse, death of a character (would feel like exploiting grief)"
+    "name": "Nexora Money",
+    "category": "Finance",
+    "tagline": "Plan today. Live ahead.",
+    "description": "A fictional digital finance platform for everyday payments, savings, budgeting, and personal financial planning.",
+    "target_contexts": [
+      "office scenes",
+      "shopping",
+      "travel planning",
+      "paying bills",
+      "young professionals discussing money"
+    ],
+    "negative_contexts": [
+      "funerals and mourning",
+      "medical or illness scenes",
+      "crime and weapons",
+      "hunger and poverty"
+    ]
   },
   {
-    "brand": "Jhilmil Jewels",
-    "sector": "Gold and diamond jewellery",
-    "slogan": "Bhalobasar jhilmil",
-    "about": "Wedding and festival jewellery. Traditional Bengali designs.",
-    "ideal_moments": "weddings, romance, celebrations, festivals, shopping, dressing up",
-    "never_show_after": "death or mourning, poverty or hunger, violence, disasters"
+    "name": "Roamora",
+    "category": "Travel",
+    "tagline": "Go where the story takes you",
+    "description": "A travel booking brand focused on affordable stays, weekend escapes, and spontaneous trips for young travellers and families.",
+    "target_contexts": [
+      "travel scenes",
+      "road trips",
+      "vacation planning",
+      "friends packing for a trip",
+      "hotel or airport scenes"
+    ],
+    "negative_contexts": [
+      "accidents and injuries",
+      "disaster scenes",
+      "funerals and mourning",
+      "strong arguments"
+    ]
   },
   {
-    "brand": "Pathik Rides",
-    "sector": "Cab and travel app",
-    "slogan": "Jetheke khushi, pouche jaan",
-    "about": "Book a cab or an outstation trip in two taps.",
-    "ideal_moments": "travel, road trips, commuting, arriving in a new city, sightseeing, holidays",
-    "never_show_after": "road accidents and injuries, disasters, kidnapping and crime scenes"
+    "name": "PulseGrid",
+    "category": "Telecom",
+    "tagline": "Stay close. Wherever life goes.",
+    "description": "A fictional mobile network offering fast connectivity, affordable data plans, and reliable calling for connected households.",
+    "target_contexts": [
+      "phone conversations",
+      "friends chatting",
+      "commuting",
+      "college life",
+      "remote work"
+    ],
+    "negative_contexts": [
+      "funerals and mourning",
+      "hospital or illness scenes",
+      "violence",
+      "disaster scenes"
+    ]
   },
   {
-    "brand": "Sonar Tori Pay",
-    "sector": "Mobile payments",
-    "slogan": "Taka pathano, ekdom sohoj",
-    "about": "UPI-based payments and bill splitting for everyday shopping.",
-    "ideal_moments": "shopping, markets, restaurants, paying bills, young people, office life",
-    "never_show_after": "theft, crime, weapons, violence, extreme poverty"
+    "name": "Morrow Thread",
+    "category": "Fashion",
+    "tagline": "Wear your next move",
+    "description": "A contemporary clothing label offering everyday streetwear and smart-casual pieces for young adults.",
+    "target_contexts": [
+      "shopping scenes",
+      "college life",
+      "getting ready to go out",
+      "friends meeting",
+      "city commuting"
+    ],
+    "negative_contexts": [
+      "funerals and mourning",
+      "religion-sensitive scenes",
+      "violence",
+      "hospital or illness scenes"
+    ]
   },
   {
-    "brand": "Sukh Nidra Mattress",
-    "sector": "Mattresses and bedding",
-    "slogan": "Bhalo ghum, bhalo din",
-    "about": "Orthopaedic foam mattresses for tired backs.",
-    "ideal_moments": "night scenes, tired characters, quiet home moments, weekends, resting",
-    "never_show_after": "serious illness or hospital scenes, death, accidents (do not joke about rest and recovery)"
+    "name": "Hearthline",
+    "category": "Home",
+    "tagline": "Make room for living",
+    "description": "A home and kitchen brand offering practical appliances, storage solutions, and everyday products for modern households.",
+    "target_contexts": [
+      "cooking scenes",
+      "home improvement",
+      "family gatherings",
+      "moving into a new home",
+      "cleaning and organizing"
+    ],
+    "negative_contexts": [
+      "funerals and mourning",
+      "accidents and injuries",
+      "violence",
+      "heated fights"
+    ]
   },
   {
-    "brand": "Mishti Mukh Sweets",
-    "sector": "Traditional sweets",
-    "slogan": "Mishti mukhe shuru holo shob",
-    "about": "Sandesh, rosogolla and mishti doi made fresh daily.",
-    "ideal_moments": "celebrations, festivals, good news, weddings, family gatherings, visitors arriving",
-    "never_show_after": "death and mourning, funerals, illness (diabetes), smoking or drinking, arguments"
+    "name": "BrightStep",
+    "category": "Education",
+    "tagline": "Learn something. Change everything.",
+    "description": "An online learning platform offering courses, exam preparation, and career skills for students and early-career professionals.",
+    "target_contexts": [
+      "study scenes",
+      "college life",
+      "exam preparation",
+      "office learning",
+      "students discussing careers"
+    ],
+    "negative_contexts": [
+      "funerals and mourning",
+      "hospital or illness scenes",
+      "violence",
+      "strong arguments"
+    ]
+  },
+  {
+    "name": "Sundrop Pantry",
+    "category": "Grocery",
+    "tagline": "Everyday staples, made better",
+    "description": "A fictional grocery brand selling pantry staples, cooking ingredients, snacks, and household food essentials.",
+    "target_contexts": [
+      "grocery shopping",
+      "cooking scenes",
+      "family meals",
+      "kitchen conversations",
+      "weekend shopping"
+    ],
+    "negative_contexts": [
+      "hunger and poverty",
+      "funerals and mourning",
+      "hospital or illness scenes",
+      "strong arguments"
+    ]
+  },
+  {
+    "name": "Velora Care",
+    "category": "Personal Care",
+    "tagline": "Feel good in your everyday",
+    "description": "A personal-care brand offering everyday skincare, bath, and grooming products for young adults and families.",
+    "target_contexts": [
+      "morning routines",
+      "getting ready",
+      "shopping scenes",
+      "travel preparation",
+      "bedroom or bathroom routines"
+    ],
+    "negative_contexts": [
+      "hospital or illness scenes",
+      "medical treatment",
+      "funerals and mourning",
+      "violence"
+    ]
+  },
+  {
+    "name": "CrispCart",
+    "category": "Quick Commerce",
+    "tagline": "Need it? On its way.",
+    "description": "A fictional delivery service for groceries, snacks, household essentials, and last-minute everyday purchases.",
+    "target_contexts": [
+      "late-night snacking",
+      "friends hanging out",
+      "house parties",
+      "cooking scenes",
+      "busy office days"
+    ],
+    "negative_contexts": [
+      "alcohol",
+      "tobacco or drugs",
+      "funerals and mourning",
+      "hospital or illness scenes"
+    ]
+  },
+  {
+    "name": "Skyloom",
+    "category": "Technology",
+    "tagline": "Build what's next",
+    "description": "A fictional consumer technology brand creating laptops, smart devices, and productivity hardware for students and professionals.",
+    "target_contexts": [
+      "office scenes",
+      "college life",
+      "studying",
+      "working from home",
+      "creative work"
+    ],
+    "negative_contexts": []
   }
 ]

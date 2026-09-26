@@ -138,6 +138,11 @@ def test_a_capped_sweep_keeps_unknown_as_it_was():
     assert apply_sweep(scene(unknown=True), sweep(full=False)).unknown
 
 
+def test_a_sweep_that_dropped_a_tag_for_a_bad_citation_does_not_clear_unknown():
+    rec = sweep().model_copy(update={"dropped": [TagEvidence(tag=T.DEATH_GRIEF, frames=[], cue="")]})
+    assert apply_sweep(scene(unknown=True), rec).unknown
+
+
 def test_a_full_coverage_sweep_clears_unknown():
     out = apply_sweep(scene(unknown=True), sweep([T.ALCOHOL]))
     assert not out.unknown and out.safety_tags == [T.ALCOHOL]
@@ -225,3 +230,13 @@ def test_an_unknown_scene_is_a_culprit_and_a_scene_that_blocks_only_some_brands_
 def test_two_scenes_that_only_block_every_brand_together_name_no_culprit():
     brands = [brand("a", [T.VIOLENCE]), brand("b", [T.ALCOHOL])]
     assert blocking_scenes(brands, scene({T.VIOLENCE}, index=1), scene({T.ALCOHOL}, index=2)) == []
+
+
+def test_a_brand_with_no_negatives_of_its_own_is_blocked_by_the_default_floor():
+    from adlyser.agents.catalogue import to_brands
+    from adlyser.schemas import NormalisedBrand, NormalisedCatalogue
+
+    bare = NormalisedBrand(name="Bare", category="c", tagline="t", description="d")
+    (brand_,) = to_brands(NormalisedCatalogue(brands=[bare]), [T.DEATH_GRIEF, T.FUNERAL_RITUAL])
+    assert blocking_tags(brand_, scene({T.DEATH_GRIEF}), scene()) == ["death_grief"]
+    assert blocking_tags(brand_, scene({T.ALCOHOL}), scene()) == []  # the floor adds no other block

@@ -1,0 +1,116 @@
+/*
+ * Design tokens. Matte, flat, dark. Hierarchy comes from luminance, type and spacing,
+ * not from borders, shadows or gradients. Every value in app.css comes from here.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces: each step is a little lighter. Separation is tonal; a hairline only where a list needs one. */
+  --bg: #080808;
+  --bg-raised: #0b0b0c;
+  --panel: #121212;
+  --nested: #181818;
+  --elevated: #1c1c1e;
+  --hairline: rgba(255, 255, 255, 0.05);
+  --line: rgba(255, 255, 255, 0.1);
+
+  /* Text */
+  --text: #f2f2f2;
+  --text-2: #a0a0a3;
+  --text-3: #76767b;
+  --on-accent: #ffffff;
+
+  /* Brand accent: primary action, active state, the selected break. Nothing else is this red. */
+  --accent: #e4003b;
+  --accent-2: #ff174f;
+  --accent-tint: rgba(228, 0, 59, 0.14);
+
+  /* Semantic colours. Only the relevant indicator takes one, never a whole surface. */
+  --ok: #52b788;
+  --warn: #d9a441;
+  --danger: #e5534b;
+  --ok-tint: rgba(82, 183, 136, 0.12);
+  --warn-tint: rgba(217, 164, 65, 0.12);
+  --danger-tint: rgba(229, 83, 75, 0.12);
+
+  /* Candidate status on the timeline */
+  --st-selected: var(--accent-2);
+  --st-vetoed: var(--warn);
+  --st-blocked: var(--danger);
+  --st-pacing_rejected: #8c8c90;
+  --st-below_min_score: #5f5f63;
+  --st-not_scene_change: #48484c;
+
+  /* Type: one family. Technical labels are small, uppercase and tracked out. */
+  --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fs-label: 0.6875rem;
+  --fs-meta: 0.75rem;
+  --fs-body: 0.875rem;
+  --fs-title: 1rem;
+  --fs-lead: 1.0625rem;
+  --fs-section: 1.375rem;
+  --fs-page: clamp(1.75rem, 2.6vw, 2.5rem);
+  --fs-hero: clamp(2.25rem, 4.4vw, 3.75rem);
+  --track-label: 0.08em;
+  --track-heading: -0.02em;
+  --track-hero: -0.03em;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* Space (4px grid, in rem so it follows the user's text size) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+  --sp-8: 4.5rem;
+  --sp-9: 6rem;
+  --gutter: clamp(1rem, 3.2vw, 3rem);
+  --page-max: 112rem;
+
+  /* Geometry: restrained. Engineered, not playful. */
+  --radius-container: 8px;
+  --radius-button: 6px;
+  --radius-control: 4px;
+  --radius-tag: 3px;
+
+  /* Motion: 150 to 250 ms, ease-out, only where state changes. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --dur-press: 120ms;
+  --dur-fast: 160ms;
+  --dur: 220ms;
+  --press-scale: 0.98;
+  --swap-blur: 2px;
+
+  /* Layers and chrome */
+  --nav-h: 3.5rem;
+  --z-nav: 20;
+  --z-modal: 40;
+  --scrim: rgba(0, 0, 0, 0.72);
+}
+
+/* Reduced motion keeps opacity and colour changes and drops movement. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-press: 1ms;
+    --dur-fast: 100ms;
+    --dur: 120ms;
+    --press-scale: 1;
+    --swap-blur: 0px;
+  }
+}
+
+/* More contrast: brighter text and defined edges. */
+@media (prefers-contrast: more) {
+  :root {
+    --hairline: rgba(255, 255, 255, 0.22);
+    --line: rgba(255, 255, 255, 0.4);
+    --text-2: #d0d0d3;
+    --text-3: #b0b0b4;
+  }
+}

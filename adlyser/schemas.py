@@ -373,3 +373,4 @@ class DebugReport(BaseModel):
     llm_stats: dict[str, dict[str, int]]
     loops: int
     wall_s: float
+    min_break_score: float | None = None  # the threshold the candidate statuses were judged against

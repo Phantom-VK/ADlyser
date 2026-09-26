@@ -15,6 +15,7 @@ from pydantic import BaseModel, ValidationError
 from adlyser.cache import DiskCache, content_key
 from adlyser.config import Endpoint, Settings
 from adlyser.errors import LlmError
+from adlyser.llm.prompts import FIX_JSON
 from adlyser.log import get_logger
 
 log = get_logger(__name__)
@@ -76,6 +77,7 @@ class LLMClient:
         cache: DiskCache,
         concurrency: int,
         timeout_s: float,
+        temperature: float,
     ) -> None:
         """Create a client.
 
@@ -84,8 +86,10 @@ class LLMClient:
         :param cache: disk cache for validated responses.
         :param concurrency: max in-flight calls.
         :param timeout_s: per-call timeout.
+        :param temperature: sampling temperature for every call.
         """
         self.endpoint = endpoint
+        self.temperature = temperature
         self.cache = cache
         self.stats: defaultdict[str, Counter[str]] = defaultdict(Counter)
         self._sem = asyncio.Semaphore(concurrency)
@@ -110,7 +114,11 @@ class LLMClient:
         :return: the raw result.
         :raises LlmError: if the API call fails.
         """
-        kwargs: dict[str, Any] = {"model": self.endpoint.model, "messages": messages}
+        kwargs: dict[str, Any] = {
+            "model": self.endpoint.model,
+            "messages": messages,
+            "temperature": self.temperature,
+        }
         if tools:
             kwargs["tools"] = tools
         if json_mode:
@@ -164,7 +172,7 @@ class LLMClient:
         :param fallback: conservative value returned if both attempts fail (never cached).
         :return: a validated ``model`` instance.
         """
-        key = content_key(self.endpoint.model, prompt, messages, model.model_json_schema())
+        key = content_key(self.endpoint.model, self.temperature, prompt, messages, model.model_json_schema())
         hit = self.cache.get(prompt, key)
         if hit is not None:
             try:
@@ -182,11 +190,15 @@ class LLMClient:
                 return out
             except ValidationError:
                 pass
+        nudge: list[dict[str, Any]] = []
         for attempt in (1, 2):
             try:
-                result = await self.chat(prompt, messages)
-                out = model.model_validate(json.loads(result.message.content or ""))
+                result = await self.chat(prompt, [*messages, *nudge])
+                raw = result.message.content or ""
+                out = model.model_validate(json.loads(raw))
             except (LlmError, ValidationError, json.JSONDecodeError) as exc:
+                if not isinstance(exc, LlmError):  # bad JSON: say so on the retry
+                    nudge = [{"role": "assistant", "content": raw}, {"role": "user", "content": FIX_JSON}]
                 log.warning(
                     "llm_bad_output",
                     extra={
@@ -225,6 +237,8 @@ def make_clients(settings: Settings) -> tuple[LLMClient, LLMClient]:
     llm = settings.llm
 
     def build(ep: Endpoint) -> LLMClient:
-        return LLMClient(ep, settings.api_key(ep.provider), cache, llm.concurrency, llm.timeout_s)
+        return LLMClient(
+            ep, settings.api_key(ep.provider), cache, llm.concurrency, llm.timeout_s, llm.temperature
+        )
 
     return build(llm.vision), build(llm.text)

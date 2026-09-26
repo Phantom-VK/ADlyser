@@ -3,6 +3,7 @@
 import subprocess
 from pathlib import Path
 
+from adlyser.cache import unique_tmp
 from adlyser.errors import PerceptionError
 
 
@@ -37,7 +38,7 @@ def extract_wav(video: Path, wav: Path) -> Path:
     :raises PerceptionError: if the video has no audio or ffmpeg fails.
     """
     wav.parent.mkdir(parents=True, exist_ok=True)
-    tmp = wav.with_name(wav.name + ".tmp")
+    tmp = unique_tmp(wav)
     cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000"]
     try:
         subprocess.run(

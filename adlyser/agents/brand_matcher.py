@@ -95,15 +95,13 @@ async def match_brand(
         {"role": "system", "content": with_schema(BRAND_RERANK, Rerank)},
         {"role": "user", "content": text},
     ]
-    fallback = Rerank.model_validate(
-        {
-            "ranked": [
-                {"brand_id": e.brand_id, "fit": max(0.0, e.similarity), "reason": "embedding similarity"}
-                for e in shortlist
-            ]
-        }
-    )
-    ranked = (await client.chat_json("brand_rerank", messages, Rerank, fallback)).ranked
+    failed = Rerank(ranked=[])
+    result = await client.chat_json("brand_rerank", messages, Rerank, failed)
+    if result is failed:  # cosine similarity is a shortlist score, never a fit
+        return BrandChoice(
+            kind="no_fit", brand_id=None, shortlist=shortlist, blocked=blocked, reason="rerank unavailable"
+        )
+    ranked = result.ranked
 
     known = {e.brand_id: e for e in shortlist}
     kept: list[ShortlistEntry] = []
