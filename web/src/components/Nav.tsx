@@ -34,21 +34,21 @@ function useCurrentSection(ids: string[]): string | null {
 }
 
 interface Props {
-  /** Ids of the sections on the current page, in order. Empty on the library. */
+  /** Ids of the sections on the current page, in order. Empty outside an episode. */
   sections: string[];
 }
 
-/** The top navigation: Library always, and the sections of an episode page when one is open. */
+/** The top navigation: Home always, and the sections of an episode page when one is open. */
 export function Nav({ sections }: Props) {
   const current = useCurrentSection(sections);
   return (
     <header className="nav">
-      <a className="wordmark" href="#/" aria-label="ADlyser, library">
+      <a className="wordmark" href="#/" aria-label="ADlyser, home">
         <b>AD</b>lyser
       </a>
       <nav aria-label="Primary">
         <a href="#/" aria-current={sections.length === 0 ? "page" : undefined}>
-          Library
+          Home
         </a>
         {sections.map((id) => (
           <button key={id} type="button" aria-current={current === id ? "location" : undefined} onClick={() => document.getElementById(id)?.scrollIntoView()}>

@@ -121,12 +121,24 @@ export interface LibraryItem {
   name: string;
   video: string;
   video_url: string;
+  size_bytes: number;
   processed: boolean;
   duration_s: number | null;
   breaks: number;
   candidates: number;
   wall_s: number | null;
   uploaded: boolean;
+}
+
+/** A video with a finished analysis, as GET /api/videos lists it. */
+export interface AnalysedVideo extends LibraryItem {
+  /** When the analysis finished, in seconds since the epoch. */
+  analysed_at: number;
+}
+
+export interface AppConfig {
+  upload_max_mb: number;
+  upload_suffixes: string[];
 }
 
 export interface AddedBrand {
@@ -142,6 +154,19 @@ export interface NodeEvent {
   node: string;
   elapsed_s: number;
 }
+
+/** What a pipeline node is doing right now, e.g. "Analysing stretch 7 of 20". */
+export interface DetailEvent {
+  type: "detail";
+  node: string;
+  text: string;
+  done?: number;
+  total?: number;
+  /** A milestone inside a node ("signals": speech and cuts are measured). */
+  stage?: string;
+}
+
+export type ProgressEvent = NodeEvent | DetailEvent;
 
 export interface EndEvent {
   type: "end";

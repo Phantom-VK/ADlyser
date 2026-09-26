@@ -1,12 +1,14 @@
 /** Typed calls to the ADlyser API. Every failure becomes an ApiError with a readable message. */
 import type {
   AddedBrand,
+  AnalysedVideo,
+  AppConfig,
   Brand,
   DebugReport,
   EndEvent,
   JobStatus,
   LibraryItem,
-  NodeEvent,
+  ProgressEvent,
 } from "./types";
 
 export class ApiError extends Error {
@@ -48,6 +50,12 @@ const json = (body: unknown): RequestInit => ({
 
 export const getLibrary = async (): Promise<LibraryItem[]> => (await request("/api/library")).json();
 
+/** Every video with a finished analysis, newest first. */
+export const getVideos = async (): Promise<AnalysedVideo[]> => (await request("/api/videos")).json();
+
+/** The upload limit and accepted file types. */
+export const getConfig = async (): Promise<AppConfig> => (await request("/api/config")).json();
+
 /** The finished analysis of a video, or null if it has not been analysed yet. */
 export async function getReport(name: string): Promise<DebugReport | null> {
   try {
@@ -76,25 +84,25 @@ export async function runJob(name: string): Promise<void> {
   await request(`/api/jobs/${name}/run`, { method: "POST" });
 }
 
-export async function getJob(name: string): Promise<{ status: JobStatus; events: NodeEvent[]; error: string }> {
+export async function getJob(name: string): Promise<{ status: JobStatus; events: ProgressEvent[]; error: string }> {
   return (await request(`/api/jobs/${name}`)).json();
 }
 
 /**
- * Follow a job's progress. Calls `onNode` for every finished pipeline node (past ones first) and
- * `onEnd` once. Returns a function that stops listening.
+ * Follow a job's progress. Calls `onEvent` for every progress event (past ones first: a finished pipeline
+ * node, or what a node is doing) and `onEnd` once. Returns a function that stops listening.
  */
 export function followJob(
   name: string,
-  onNode: (event: NodeEvent) => void,
+  onEvent: (event: ProgressEvent) => void,
   onEnd: (event: EndEvent) => void,
 ): () => void {
   const source = new EventSource(`/api/jobs/${name}/events`);
   let ended = false;
   source.onmessage = (msg: MessageEvent<string>) => {
-    const event = JSON.parse(msg.data) as NodeEvent | EndEvent;
-    if (event.type === "node") {
-      onNode(event);
+    const event = JSON.parse(msg.data) as ProgressEvent | EndEvent;
+    if (event.type !== "end") {
+      onEvent(event);
       return;
     }
     ended = true;

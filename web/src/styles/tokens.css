@@ -90,6 +90,8 @@
   /* Layers and chrome */
   --nav-h: 3.5rem;
   --z-nav: 20;
+  --z-modal: 40;
+  --scrim: rgba(0, 0, 0, 0.72);
 }
 
 /* Reduced motion keeps opacity and colour changes and drops movement. */

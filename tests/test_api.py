@@ -162,11 +162,12 @@ def fake_pipeline(monkeypatch, *, fail: bool = False):
     """Replace run_pipeline: emits two node events, then writes a vmap (or fails)."""
     calls: list[dict] = []
 
-    async def run(video, settings, out_dir, base_url="", on_event=None, embedder=None):
+    async def run(video, settings, out_dir, base_url="", on_event=None, embedder=None, on_progress=None):
         calls.append(
             {"video": video, "out": out_dir, "catalogue": settings.catalogue.path, "embedder": embedder}
         )
         on_event("measure", 1.0)
+        on_progress({"node": "analyse", "text": "Analysing stretch 1 of 2", "done": 1, "total": 2})
         on_event("analyse", 2.0)
         if fail:
             raise AdlyserError("boom")
@@ -193,7 +194,15 @@ def test_run_streams_progress_then_ends(client, monkeypatch, embedder):
     calls = fake_pipeline(monkeypatch)
     assert client.post("/api/jobs/ep2/run").status_code == 202
     events = read_stream(client, "/api/jobs/ep2/events")
-    assert [e.get("node") for e in events[:-1]] == ["measure", "analyse"]
+    assert [e.get("node") for e in events[:-1]] == ["measure", "analyse", "analyse"]
+    assert [e["type"] for e in events[:-1]] == ["node", "detail", "node"]
+    assert events[1] == {
+        "type": "detail",
+        "node": "analyse",
+        "text": "Analysing stretch 1 of 2",
+        "done": 1,
+        "total": 2,
+    }
     assert events[-1] == {"type": "end", "status": "done", "error": ""}
     assert calls[0]["embedder"] is embedder and calls[0]["out"].name == "ep2"
     assert client.get("/data/ep2/vmap.xml").text == "<new/>"
@@ -219,7 +228,7 @@ def test_only_one_job_runs_at_a_time(client, monkeypatch):
 
     gate = asyncio.Event()
 
-    async def slow(video, settings, out_dir, base_url="", on_event=None, embedder=None):
+    async def slow(video, settings, out_dir, base_url="", on_event=None, embedder=None, on_progress=None):
         await gate.wait()
 
     monkeypatch.setattr(api, "run_pipeline", slow)
@@ -270,7 +279,7 @@ def test_upload_is_refused_while_a_job_runs(client, monkeypatch):
 
     gate = asyncio.Event()
 
-    async def slow(video, settings, out_dir, base_url="", on_event=None, embedder=None):
+    async def slow(video, settings, out_dir, base_url="", on_event=None, embedder=None, on_progress=None):
         await gate.wait()
 
     monkeypatch.setattr(api, "run_pipeline", slow)
@@ -415,3 +424,71 @@ def test_a_run_without_added_brands_reads_the_seed_as_is(client, env, monkeypatc
         Path("catalogue/brands.json").read_text()
     )
     assert calls[0]["catalogue"] == env.catalogue.working_path
+
+
+# --- GET /api/videos: finished analyses ---------------------------------------------------------------
+
+
+def finish(env, name: str, video: str, breaks: int = 1, age_s: float = 0.0) -> None:
+    """Write a finished analysis for ``name``; ``age_s`` seconds in the past."""
+    import os
+    import time
+
+    folder = env.data_dir / name
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "vmap.xml").write_text(VMAP)
+    debug = folder / "debug.json"
+    debug.write_text(report(video, breaks=breaks).model_dump_json())
+    stamp = time.time() - age_s
+    os.utime(debug, (stamp, stamp))
+
+
+def test_videos_lists_only_finished_analyses(client, env):
+    videos = client.get("/api/videos").json()
+    assert [v["name"] for v in videos] == ["ep1"]  # ep2 has no output folder
+    v = videos[0]
+    assert v["breaks"] == 2 and v["duration_s"] == 600.0 and v["video_url"] == "/videos/ep1.mp4"
+    assert v["candidates"] == 0 and v["uploaded"] is False and v["size_bytes"] == 100
+    assert isinstance(v["analysed_at"], float) and v["analysed_at"] > 0
+
+
+def test_videos_ignores_partial_or_broken_output_folders(client, env):
+    only_vmap = env.data_dir / "ep2"
+    only_vmap.mkdir()
+    (only_vmap / "vmap.xml").write_text(VMAP)
+    assert [v["name"] for v in client.get("/api/videos").json()] == ["ep1"]
+    (only_vmap / "debug.json").write_text("{not json")
+    assert [v["name"] for v in client.get("/api/videos").json()] == ["ep1"]
+    (only_vmap / "debug.json").write_text(report("ep2.mp4").model_dump_json())
+    (only_vmap / "vmap.xml").unlink()  # a debug.json without its manifest is not finished either
+    assert [v["name"] for v in client.get("/api/videos").json()] == ["ep1"]
+    (env.data_dir / "ep1" / "thumbs").mkdir()  # thumbnails alone never make a job
+
+
+def test_videos_with_no_source_video_are_left_out(client, env):
+    finish(env, "orphan", "orphan.mp4")
+    assert "orphan" not in [v["name"] for v in client.get("/api/videos").json()]
+
+
+def test_videos_are_newest_first_and_an_analysis_moves_a_sample_in(client, env):
+    finish(env, "ep1", "ep1.mp4", age_s=1000)
+    assert [v["name"] for v in client.get("/api/videos").json()] == ["ep1"]
+    finish(env, "ep2", "ep2.mp4", age_s=10)
+    assert [v["name"] for v in client.get("/api/videos").json()] == ["ep2", "ep1"]
+    assert {i["name"]: i["processed"] for i in client.get("/api/library").json()} == {
+        "ep1": True,
+        "ep2": True,
+    }
+
+
+def test_library_items_carry_the_file_size(client):
+    items = {i["name"]: i for i in client.get("/api/library").json()}
+    assert items["ep1"]["size_bytes"] == 100 and items["ep2"]["size_bytes"] == 20
+
+
+def test_config_tells_the_ui_the_upload_limit_and_types(client, env):
+    assert client.get("/api/config").json() == {"upload_max_mb": 1, "upload_suffixes": [".mp4"]}
+
+
+def test_the_shipped_upload_types_are_mp4_mov_and_mkv():
+    assert get_settings().api.upload_suffixes == [".mp4", ".mov", ".mkv"]

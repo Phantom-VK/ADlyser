@@ -85,7 +85,7 @@ catalogue:
 api:
   uploads_dir: data/uploads
   upload_max_mb: 500
-  upload_suffixes: [.mp4, .mov, .mkv, .webm]
+  upload_suffixes: [.mp4, .mov, .mkv]
   frame_step_s: 0.5     # thumbnail times snap to this grid so the thumbnail cache stays small
   large_frame_width: 1280   # width of the hero image (size=large); thumbnails use frames.width
   events_poll_s: 0.2    # how often a progress stream looks for new events

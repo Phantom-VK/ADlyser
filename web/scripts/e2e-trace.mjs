@@ -16,7 +16,7 @@ const check = (ok, what, detail = "") => {
 };
 page.on("pageerror", (e) => check(false, "no page errors", e.message));
 
-await page.goto(`${BASE}/#/watch/${name}`, { waitUntil: "networkidle2" });
+await page.goto(`${BASE}/#/video/${name}`, { waitUntil: "networkidle2" });
 await page.waitForSelector(".tl-mark");
 const marks = () => page.$$eval(".tl-mark", (els) => els.map((e) => ({ label: e.getAttribute("aria-label"), status: e.dataset.status })));
 const all = await marks();
@@ -92,7 +92,7 @@ const target = report.candidates[report.candidates.length - 1];
 await (await page.$$(".tl-mark"))[report.candidates.length - 1].evaluate((el) => el.click());
 await page.waitForFunction((t) => document.querySelector(".trace-time")?.textContent === t, {}, clock(target.t));
 const hash = await page.evaluate(() => location.hash);
-check(hash === `#/watch/${name}?t=${target.t}`, "the URL reflects the selected candidate", `(${hash})`);
+check(hash === `#/video/${name}?t=${target.t}`, "the URL reflects the selected candidate", `(${hash})`);
 await page.goto(`${BASE}/${hash}`, { waitUntil: "networkidle2" });
 await page.reload({ waitUntil: "networkidle2" });
 await page.waitForSelector(".trace-time");

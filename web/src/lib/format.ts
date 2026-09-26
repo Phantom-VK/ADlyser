@@ -42,3 +42,14 @@ export const countdown = (seconds: number): string => {
 
 /** A plural label: `2 breaks`. */
 export const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+
+/** A file size in the unit a person reads: `48 MB`, `1.2 GB`. */
+export const bytes = (n: number): string => {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (n >= 1024 ** 2) return `${Math.round(n / 1024 ** 2)} MB`;
+  return `${Math.max(Math.round(n / 1024), 1)} KB`;
+};
+
+/** When something happened, from seconds since the epoch: `26 Sep, 19:45`. */
+export const when = (epochSeconds: number): string =>
+  new Date(epochSeconds * 1000).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });

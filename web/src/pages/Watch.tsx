@@ -1,28 +1,22 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, followJob, getAddedBrands, getJob, getLibrary, getReport, getVmap, runJob } from "../api";
-import { AgentGraph } from "../components/AgentGraph";
+import { ApiError, getAddedBrands, getJob, getLibrary, getReport, getVmap } from "../api";
 import { Label } from "../components/bits";
 import { BrandsPanel, type RematchSummary } from "../components/BrandsPanel";
 import type { PlayerHandle } from "../components/Player";
+import { ProcessDialog, type RunSource } from "../components/ProcessDialog";
 import { Timeline } from "../components/Timeline";
 import { TracePanel } from "../components/TracePanel";
 import { clock, count, titleOf } from "../lib/format";
 import { STATUS_ORDER } from "../lib/status";
 import { whyNoBreaks } from "../lib/why";
 import { parseVmap, type AdBreak } from "../lib/vmap";
-import type { AddedBrand, CandidateStatus, DebugReport, JobStatus, LibraryItem, NodeEvent } from "../types";
+import type { AddedBrand, CandidateStatus, DebugReport, LibraryItem } from "../types";
 
 // Video.js is the heaviest dependency, so it loads only when an episode opens.
 const Player = lazy(() => import("../components/Player").then((m) => ({ default: m.Player })));
 
-interface Job {
-  status: JobStatus;
-  events: NodeEvent[];
-  error: string;
-}
 /** A shared link names a candidate by its time; it matches within this many seconds. */
 const LINK_TOLERANCE_S = 0.05;
-const IDLE: Job = { status: "idle", events: [], error: "" };
 
 /** True when a run made no model call for scene analysis (it was all cached). */
 const sceneCached = (r: DebugReport): boolean =>
@@ -33,21 +27,22 @@ interface Props {
   initialT: number | null;
   /** Reports which sections this page has, for the navigation. */
   onSections: (ids: string[]) => void;
+  /** This video has no analysis yet: send the person to the ready screen for it. */
+  onNeedsAnalysis: (item: LibraryItem) => void;
 }
 
 /** One episode: the player, the pipeline, the Decision Trace and the brands. */
-export function Watch({ name, initialT, onSections }: Props) {
+export function Watch({ name, initialT, onSections, onNeedsAnalysis }: Props) {
   const [item, setItem] = useState<LibraryItem | null | undefined>(undefined);
   const [report, setReport] = useState<DebugReport | null>(null);
   const [breaks, setBreaks] = useState<AdBreak[]>([]);
   const [added, setAdded] = useState<AddedBrand[]>([]);
-  const [job, setJob] = useState<Job>(IDLE);
+  const [run, setRun] = useState<RunSource | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
   const [visible, setVisible] = useState<Set<CandidateStatus>>(new Set(STATUS_ORDER));
   const [summary, setSummary] = useState<RematchSummary | null>(null);
   const player = useRef<PlayerHandle>(null);
-  const stop = useRef<() => void>(() => {});
   const vmapText = useRef<string | null>(null);
   /** The manifest text from before a re-match started; undefined when no re-match is under way. */
   const rematchFrom = useRef<string | null | undefined>(undefined);
@@ -68,33 +63,23 @@ export function Watch({ name, initialT, onSections }: Props) {
     return { rep, vmap };
   }, [name, initialT]);
 
-  const follow = useCallback(() => {
-    stop.current();
-    stop.current = followJob(
-      name,
-      (event) => setJob((j) => ({ ...j, status: "running", events: [...j.events, event] })),
-      (end) => {
-        setJob((j) => ({ ...j, status: end.status, error: end.error }));
-        if (end.status !== "done") {
-          rematchFrom.current = undefined;
-          return;
-        }
-        loadResults()
-          .then(({ rep, vmap }) => {
-            if (rematchFrom.current !== undefined && rep) setSummary({ sceneCached: sceneCached(rep), vmapChanged: vmap !== rematchFrom.current });
-            rematchFrom.current = undefined;
-          })
-          .catch(() => setError("Could not load the new results."));
-      },
-    );
-  }, [name, loadResults]);
+  /** The run in the dialog has finished: show the new results, and what a re-match changed. */
+  const finished = useCallback(() => {
+    setRun(null);
+    loadResults()
+      .then(({ rep, vmap }) => {
+        if (rematchFrom.current !== undefined && rep) setSummary({ sceneCached: sceneCached(rep), vmapChanged: vmap !== rematchFrom.current });
+        rematchFrom.current = undefined;
+      })
+      .catch(() => setError("Could not load the new results."));
+  }, [loadResults]);
 
   useEffect(() => {
     let alive = true;
     setItem(undefined);
     setReport(null);
     setBreaks([]);
-    setJob(IDLE);
+    setRun(null);
     setSummary(null);
     setError("");
     (async () => {
@@ -103,10 +88,12 @@ export function Watch({ name, initialT, onSections }: Props) {
         if (!alive) return;
         setItem(library.find((i) => i.name === name) ?? null);
         setAdded(brands);
-        await loadResults();
-        if (current.status === "running") {
-          setJob({ status: "running", events: [], error: "" });
-          follow();
+        const { rep } = await loadResults();
+        if (!alive) return;
+        if (current.status === "running") setRun({ kind: "attach", name });
+        else if (!rep) {
+          const found = library.find((i) => i.name === name);
+          if (found) onNeedsAnalysis(found);
         }
       } catch (err) {
         if (alive) setError(err instanceof ApiError ? err.message : "Could not load this episode.");
@@ -114,27 +101,14 @@ export function Watch({ name, initialT, onSections }: Props) {
     })();
     return () => {
       alive = false;
-      stop.current();
     };
-  }, [name, loadResults, follow]);
-
-  const start = useCallback(async () => {
-    setError("");
-    try {
-      await runJob(name);
-      setJob({ status: "running", events: [], error: "" });
-      follow();
-    } catch (err) {
-      rematchFrom.current = undefined;
-      setError(err instanceof ApiError ? err.message : "Could not start the analysis.");
-    }
-  }, [name, follow]);
+  }, [name, loadResults, onNeedsAnalysis]);
 
   const rematch = useCallback(() => {
     rematchFrom.current = vmapText.current;
     setSummary(null);
-    void start();
-  }, [start]);
+    setRun({ kind: "rematch", name });
+  }, [name]);
 
   useEffect(() => {
     onSections(report ? ["analysis", "trace", "brands"] : ["analysis"]);
@@ -142,7 +116,7 @@ export function Watch({ name, initialT, onSections }: Props) {
   }, [report, onSections]);
 
   useEffect(() => {
-    if (selected !== null) history.replaceState(null, "", `#/watch/${name}?t=${selected}`);
+    if (selected !== null) history.replaceState(null, "", `#/video/${name}?t=${selected}`);
   }, [name, selected]);
 
   const candidate = useMemo(() => report?.candidates.find((c) => c.t === selected) ?? null, [report, selected]);
@@ -153,7 +127,7 @@ export function Watch({ name, initialT, onSections }: Props) {
       if (!next.delete(status)) next.add(status);
       return next;
     });
-  const running = job.status === "running";
+  const running = run !== null;
 
   if (item === undefined && !error) {
     return (
@@ -169,7 +143,7 @@ export function Watch({ name, initialT, onSections }: Props) {
         <p className="muted">There is no video called “{name}”.</p>
         <div className="actions">
           <a className="btn btn-secondary" href="#/">
-            Back to the library
+            Back to home
           </a>
         </div>
       </main>
@@ -182,7 +156,7 @@ export function Watch({ name, initialT, onSections }: Props) {
         <header className="episode-head">
           <div>
             <Label>
-              <a href="#/">Library</a> / Episode
+              <a href="#/">Home</a> / Episode
             </Label>
             <h1 className="episode-title">{titleOf(name)}</h1>
           </div>
@@ -254,33 +228,10 @@ export function Watch({ name, initialT, onSections }: Props) {
                   </ol>
                 )}
               </>
-            ) : (
-              job.status === "idle" && (
-                <div className="cta">
-                  <Label as="h2">Not analysed yet</Label>
-                  <p className="muted">Run the pipeline to find the natural pauses, understand each scene and choose the brands.</p>
-                  <button type="button" className="btn btn-primary" onClick={() => void start()}>
-                    Run analysis
-                  </button>
-                </div>
-              )
-            )}
+            ) : null}
           </aside>
         </div>
       </section>
-
-      {job.status !== "idle" && (
-        <section className="block" aria-label="Pipeline">
-          <AgentGraph events={job.events} status={job.status} error={job.error} />
-          {!running && (
-            <div className="actions">
-              <button type="button" className="btn btn-quiet" onClick={() => setJob(IDLE)}>
-                Dismiss
-              </button>
-            </div>
-          )}
-        </section>
-      )}
 
       {report && (
         <>
@@ -314,6 +265,7 @@ export function Watch({ name, initialT, onSections }: Props) {
           </section>
         </>
       )}
+      {run && <ProcessDialog source={run} onDone={finished} />}
     </main>
   );
 }

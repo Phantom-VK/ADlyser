@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Nav } from "./components/Nav";
-import { Library } from "./pages/Library";
+import { Home } from "./pages/Home";
+import { Prepare, type Selection } from "./pages/Prepare";
 import { Watch } from "./pages/Watch";
+import type { LibraryItem } from "./types";
 
-/** The page for a `#/watch/<name>` or `#/` hash. */
-function route(hash: string): { page: "library" } | { page: "watch"; name: string; t: number | null } {
-  const m = /^#\/watch\/([\w-]+)(?:\?t=([\d.]+))?$/.exec(hash);
-  return m ? { page: "watch", name: m[1], t: m[2] ? Number(m[2]) : null } : { page: "library" };
+type Route = { page: "home" } | { page: "prepare" } | { page: "video"; name: string; t: number | null };
+
+/** The page for `#/`, `#/prepare` or `#/video/<name>[?t=<seconds>]`. Anything else is home. */
+function route(hash: string): Route {
+  if (hash === "#/prepare") return { page: "prepare" };
+  const m = /^#\/video\/([\w-]+)(?:\?t=([\d.]+))?$/.exec(hash);
+  return m ? { page: "video", name: m[1], t: m[2] ? Number(m[2]) : null } : { page: "home" };
 }
 
 export function App() {
   const [hash, setHash] = useState(location.hash);
   const [sections, setSections] = useState<string[]>([]);
+  const [selection, setSelection] = useState<Selection | null>(null);
 
   useEffect(() => {
     const onChange = () => {
@@ -37,6 +43,19 @@ export function App() {
   }, []);
 
   const r = route(hash);
+  useEffect(() => {
+    if (r.page !== "prepare") setSelection(null);
+  }, [r.page]);
+
+  const choose = useCallback((s: Selection) => {
+    setSelection(s);
+    location.hash = "#/prepare";
+  }, []);
+  const needsAnalysis = useCallback((item: LibraryItem) => {
+    setSelection({ kind: "sample", item });
+    location.replace("#/prepare"); // replace, so Back does not return to the page that redirects
+  }, []);
+
   return (
     <>
       <a
@@ -49,8 +68,10 @@ export function App() {
       >
         Skip to content
       </a>
-      <Nav sections={r.page === "watch" ? sections : []} />
-      {r.page === "watch" ? <Watch key={r.name} name={r.name} initialT={r.t} onSections={setSections} /> : <Library />}
+      <Nav sections={r.page === "video" ? sections : []} />
+      {r.page === "video" && <Watch key={r.name} name={r.name} initialT={r.t} onSections={setSections} onNeedsAnalysis={needsAnalysis} />}
+      {r.page === "prepare" && <Prepare selection={selection} />}
+      {r.page === "home" && <Home onChoose={choose} />}
     </>
   );
 }

@@ -1,5 +1,6 @@
 """Graph node behaviour with the agents mocked (no API calls)."""
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -413,3 +414,34 @@ async def test_a_no_fit_break_does_not_exclude_its_neighbours():
     st["brands"], st["options"] = [VIOLENT], OPTIONS
     out = await pipeline().settle(st)
     assert out["excluded"] == [500]
+
+
+# ---- progress details ------------------------------------------------------------------------------
+
+
+async def test_a_gathered_step_reports_each_finished_item_and_keeps_the_order():
+    seen = []
+    pipe = pipeline()
+    pipe.on_progress = seen.append
+
+    async def item(n, wait):
+        await asyncio.sleep(wait)
+        return n
+
+    out = await pipe._gather("analyse", "Analysing stretch", [item(1, 0.02), item(2, 0.0), item(3, 0.01)])
+    assert out == [1, 2, 3]
+    assert [(e["done"], e["total"]) for e in seen] == [(1, 3), (2, 3), (3, 3)]
+    assert seen[-1] == {"node": "analyse", "text": "Analysing stretch 3 of 3", "done": 3, "total": 3}
+
+
+async def test_nothing_is_reported_when_nobody_listens():
+    assert await pipeline()._gather("analyse", "x", [asyncio.sleep(0, "a")]) == ["a"]
+
+
+async def test_the_sweep_node_reports_its_scenes(monkeypatch):
+    seen = []
+    pipe = pipeline()
+    pipe.on_progress = seen.append
+    mock_sweep(monkeypatch, record())
+    await pipe.sweep(state([plan(status="needs_brand", kind=None)]))
+    assert [e["text"] for e in seen] == ["Sweeping scene 1 of 2", "Sweeping scene 2 of 2"]

@@ -215,11 +215,14 @@ def create_app(settings: Settings | None = None, embedder: Embedder | None = Non
         def on_event(node: str, elapsed_s: float) -> None:
             job.events.append({"type": "node", "node": node, "elapsed_s": elapsed_s})
 
+        def on_progress(detail: dict[str, Any]) -> None:
+            job.events.append({"type": "detail", **detail})
+
         async def run() -> None:
             try:
                 await run_pipeline(
                     video, working_settings(settings), settings.data_dir / name,
-                    on_event=on_event, embedder=shared,
+                    on_event=on_event, embedder=shared, on_progress=on_progress,
                 )  # fmt: skip
                 job.status = "done"
             except asyncio.CancelledError:
@@ -256,25 +259,45 @@ def create_app(settings: Settings | None = None, embedder: Embedder | None = Non
 
     # --- library, jobs, progress -------------------------------------------------------------------
 
+    def video_item(name: str, path: Path, report: DebugReport | None) -> dict[str, Any]:
+        """One video as the UI lists it: the file, and the summary of its analysis if it has one."""
+        return {
+            "name": name,
+            "video": path.name,
+            "video_url": f"/videos/{path.name}",
+            "size_bytes": path.stat().st_size,
+            "processed": report is not None,
+            "duration_s": report.duration_s if report else None,
+            "breaks": sum(b.outcome != "dropped" for b in report.breaks) if report else 0,
+            "candidates": len(report.candidates) if report else 0,
+            "wall_s": report.wall_s if report else None,
+            "uploaded": path.parent == settings.api.uploads_dir,
+        }
+
+    @app.get("/api/config")
+    async def ui_config() -> dict[str, Any]:
+        return {"upload_max_mb": settings.api.upload_max_mb, "upload_suffixes": settings.api.upload_suffixes}
+
     @app.get("/api/library")
     async def library() -> list[dict[str, Any]]:
-        items = []
+        return [
+            video_item(name, path, read_report(settings.data_dir / name))
+            for name, path in list_videos(settings).items()
+        ]
+
+    @app.get("/api/videos")
+    async def analysed_videos() -> list[dict[str, Any]]:
+        """Every video with a finished analysis (manifest and a readable report), newest first."""
+        found = []
         for name, path in list_videos(settings).items():
-            report = read_report(settings.data_dir / name)
-            items.append(
-                {
-                    "name": name,
-                    "video": path.name,
-                    "video_url": f"/videos/{path.name}",
-                    "processed": report is not None,
-                    "duration_s": report.duration_s if report else None,
-                    "breaks": sum(b.outcome != "dropped" for b in report.breaks) if report else 0,
-                    "candidates": len(report.candidates) if report else 0,
-                    "wall_s": report.wall_s if report else None,
-                    "uploaded": path.parent == settings.api.uploads_dir,
-                }
+            folder = settings.data_dir / name
+            report = read_report(folder)
+            if report is None or not (folder / "vmap.xml").is_file():
+                continue
+            found.append(
+                {**video_item(name, path, report), "analysed_at": (folder / "debug.json").stat().st_mtime}
             )
-        return items
+        return sorted(found, key=lambda v: -v["analysed_at"])
 
     @app.get("/api/jobs/{name}")
     async def job_status(name: str) -> dict[str, Any]:
