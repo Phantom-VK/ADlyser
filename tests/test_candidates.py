@@ -88,9 +88,24 @@ def test_silence_without_a_cut_is_rejected_by_default():
     assert times(r) == []
 
 
-def test_multiple_cuts_in_one_silence_pick_the_one_nearest_the_middle():
-    r = find_candidates([sp(0, 300), sp(310, 900)], [hard(301), hard(304.8), hard(309)], DUR, CFG)
-    assert times(r) == [304.8]
+def test_every_cut_inside_a_silence_is_a_candidate_before_thinning():
+    speech = [sp(0, 300), sp(310, 900)]
+    r = find_candidates(speech, [hard(301), hard(304.8), hard(309)], DUR, cfg(min_spacing_s=1))
+    assert times(r) == [301, 304.8, 309]
+
+
+def test_ranking_prefers_black_over_hard_then_earlier_time():
+    speech = [sp(0, 300), sp(310, 900)]
+    assert times(find_candidates(speech, [hard(310 - 0.5), Cut(t=302, kind="black")], DUR, CFG)) == [302]
+    assert times(find_candidates(speech, [hard(303), hard(305)], DUR, CFG)) == [303]
+
+
+def test_long_silence_with_regular_cuts_yields_many_candidates():
+    speech = [sp(0, 250), sp(550, 1000)]  # a 5-minute silence
+    cuts = [hard(260 + 30 * i) for i in range(10)]  # 260 .. 530
+    r = find_candidates(speech, cuts, DUR, CFG)
+    assert times(r) == [c.t for c in cuts]
+    assert {c.silence_s for c in r.candidates} == {300}
 
 
 def test_black_frame_counts_as_a_cut():
@@ -173,9 +188,9 @@ def test_no_cuts_and_no_speech_gives_nothing():
     assert times(find_candidates([], [], DUR, CFG)) == []
 
 
-def test_one_silence_gives_at_most_one_candidate_even_if_the_video_is_fully_silent():
+def test_fully_silent_video_keeps_cuts_that_are_spaced_apart():
     r = find_candidates([], [hard(400), hard(410), hard(500)], DUR, CFG)
-    assert times(r) == [500]
+    assert times(r) == [400, 500]
 
 
 def test_funnel_counts_each_filter():

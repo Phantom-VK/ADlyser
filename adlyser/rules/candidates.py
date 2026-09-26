@@ -26,22 +26,28 @@ def silences_from_speech(speech: list[SpeechSeg], duration: float) -> list[tuple
     return [(a, b) for a, b in silences if b > a]
 
 
-def _pick(silence: tuple[float, float], cuts: list[Cut], cfg: CandidateConfig) -> Candidate | None:
-    """Choose the cut point for one silence, or None if it has no safe one.
+def _pick(silence: tuple[float, float], cuts: list[Cut], cfg: CandidateConfig) -> list[Candidate]:
+    """Return every candidate inside one silence.
 
-    The cut must be at least ``speech_guard_s`` from both edges of the silence, so no speech
-    lies within the guard. Among several cuts, the one nearest the middle wins.
+    Each cut at least ``speech_guard_s`` from both edges of the silence is a candidate, so no
+    speech lies within the guard. A silence with no cut yields one mid-silence candidate only
+    when the relaxation flag is on and the silence is long enough.
     """
     start, end = silence
     lo, hi = start + cfg.speech_guard_s - _EPS, end - cfg.speech_guard_s + _EPS
-    inside = [c for c in cuts if lo <= c.t <= hi]
-    middle = (start + end) / 2
+    inside = [
+        Candidate(t=c.t, silence_start=start, silence_end=end, kind=c.kind) for c in cuts if lo <= c.t <= hi
+    ]
     if inside:
-        best = min(inside, key=lambda c: (abs(c.t - middle), c.t))
-        return Candidate(t=best.t, silence_start=start, silence_end=end, kind=best.kind)
+        return inside
     if cfg.allow_long_silence_without_cut and end - start >= cfg.long_silence_s:
-        return Candidate(t=middle, silence_start=start, silence_end=end, kind="silence")
-    return None
+        return [Candidate(t=(start + end) / 2, silence_start=start, silence_end=end, kind="silence")]
+    return []
+
+
+def _rank(cand: Candidate) -> tuple[float, int, float]:
+    """Sort key: longer silence first, then black before hard, then earlier."""
+    return (-cand.silence_s, 0 if cand.kind == "black" else 1, cand.t)
 
 
 def find_candidates(
@@ -50,8 +56,8 @@ def find_candidates(
     """Find candidate ad-break pauses.
 
     A candidate is a cut (or fade to black) inside a silence of at least ``min_silence_s``,
-    at least ``speech_guard_s`` away from any speech, outside the first ``skip_start_s`` and last
-    ``skip_end_s`` seconds. Candidates are thinned to ``min_spacing_s`` (longer silence wins)
+    at least ``speech_guard_s`` away from any speech (a long silence can hold many), outside the first ``skip_start_s`` and last
+    ``skip_end_s`` seconds. Candidates are thinned to ``min_spacing_s`` (ranked by silence length, then black before hard, then time)
     and capped at ``max_candidates``.
 
     :param speech: detected speech spans.
@@ -62,11 +68,11 @@ def find_candidates(
     """
     silences = silences_from_speech(speech, duration)
     long_enough = [s for s in silences if s[1] - s[0] >= cfg.min_silence_s - _EPS]
-    picked = [c for s in long_enough if (c := _pick(s, cuts, cfg)) is not None]
+    picked = [c for s in long_enough for c in _pick(s, cuts, cfg)]
     in_window = [c for c in picked if cfg.skip_start_s <= c.t <= duration - cfg.skip_end_s]
 
     kept: list[Candidate] = []
-    for cand in sorted(in_window, key=lambda c: (-c.silence_s, c.t)):
+    for cand in sorted(in_window, key=_rank):
         if len(kept) >= cfg.max_candidates:
             break
         if all(abs(cand.t - k.t) >= cfg.min_spacing_s for k in kept):
