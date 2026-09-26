@@ -1,6 +1,7 @@
 """Pydantic schemas that cross boundaries (LLM outputs, API, debug JSON)."""
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -42,3 +43,77 @@ class BoundaryVerdict(BaseModel):
     is_scene_change: bool
     break_score: float = Field(ge=0, le=1)
     reason: str
+
+
+class SpeechSeg(BaseModel, frozen=True):
+    """A span of detected speech, in seconds."""
+
+    start: float
+    end: float
+
+
+class Cut(BaseModel, frozen=True):
+    """A visual transition: a hard shot cut, or the middle of a fade to black."""
+
+    t: float
+    kind: Literal["hard", "black"]
+
+
+class Candidate(BaseModel, frozen=True):
+    """A pause where an ad break could go: a cut point inside real silence."""
+
+    t: float
+    silence_start: float
+    silence_end: float
+    kind: Literal["hard", "black", "silence"]
+
+    @property
+    def silence_s(self) -> float:
+        """Length of the silence containing this cut point, in seconds."""
+        return self.silence_end - self.silence_start
+
+
+class Funnel(BaseModel):
+    """How many candidates survive each filter (for tuning on counts, not content)."""
+
+    silences: int
+    long_enough: int
+    with_cut: int
+    in_window: int
+    after_spacing_cap: int
+
+
+class CandidateResult(BaseModel):
+    """Candidates in time order plus the funnel that produced them."""
+
+    candidates: list[Candidate]
+    funnel: Funnel
+
+
+class Word(BaseModel, frozen=True):
+    """One transcribed word with timing."""
+
+    start: float
+    end: float
+    text: str
+
+
+class TranscriptSeg(BaseModel, frozen=True):
+    """One transcript segment. The transcript is context for the AI, never a rule input."""
+
+    start: float
+    end: float
+    text: str
+    words: list[Word] = Field(default_factory=list)
+
+
+class Perception(BaseModel):
+    """Everything measured from one video (deterministic, cached)."""
+
+    video: str
+    fingerprint: str
+    duration_s: float
+    speech: list[SpeechSeg]
+    cuts: list[Cut]
+    transcript: list[TranscriptSeg]
+    timings_s: dict[str, float] = Field(default_factory=dict)

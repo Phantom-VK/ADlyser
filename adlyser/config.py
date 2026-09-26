@@ -40,6 +40,26 @@ class TranscribeConfig(BaseModel):
     device: str = "cpu"
     compute_type: str = "int8"
     language: str = "bn"
+    beam_size: int = 1
+
+
+class VadConfig(BaseModel):
+    """Silero VAD settings."""
+
+    threshold: float
+    min_speech_ms: int
+    min_silence_ms: int
+    speech_pad_ms: int
+
+
+class CutsConfig(BaseModel):
+    """Shot-cut and black-frame detection settings."""
+
+    adaptive_threshold: float
+    min_scene_len_frames: int
+    black_min_duration_s: float
+    black_pixel_threshold: float
+    black_scale_width: int
 
 
 class CandidateConfig(BaseModel):
@@ -80,6 +100,8 @@ class Settings(BaseSettings):
     cache_dir: Path
     llm: LlmConfig
     transcribe: TranscribeConfig
+    vad: VadConfig
+    cuts: CutsConfig
     candidates: CandidateConfig
     pacing: PacingConfig
     deepseek_api_key: SecretStr | None = Field(
