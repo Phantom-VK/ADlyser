@@ -1,10 +1,10 @@
 // Browser check for the mid-roll player: content -> ad -> resume, seek-past, and play-once.
-// Usage: node scripts/e2e.mjs [video.mp4]   (API on :8000 and `npm run dev` on :5173 must be running)
+// Usage: node scripts/e2e.mjs [name]   (e.g. feluda)   (API on :8000 and `npm run dev` on :5173 must be running)
 import { mkdirSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:5173";
-const video = process.argv[2] ?? "feluda.mp4";
+const video = process.argv[2] ?? "feluda";
 const shots = "../data/e2e";
 mkdirSync(shots, { recursive: true });
 
@@ -26,15 +26,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const snap = () =>
   page.evaluate(() => {
     const a = window.adlyser;
-    const ad = document.getElementById("ad");
+    const ad = document.querySelector(".player-ad");
     return {
       mode: a.state.mode,
       content: a.player.currentTime(),
       contentPaused: a.player.paused(),
-      adShown: ad.style.display === "block",
+      adShown: ad.dataset.showing === "true",
       adT: ad.currentTime,
       adDur: ad.duration,
-      pill: document.getElementById("pill").textContent,
+      pill: document.querySelector(".ad-overlay")?.textContent ?? "",
     };
   });
 const logNow = () => page.evaluate(() => window.adlyser.state.log);
@@ -59,7 +59,7 @@ async function waitForAd(n, label) {
   throw new Error(`timed out waiting for ad #${n}`);
 }
 
-await page.goto(`${BASE}/?video=${video}`);
+await page.goto(`${BASE}/#/watch/${video}`);
 await page.waitForFunction("window.adlyser && window.adlyser.player.readyState() >= 1", { timeout: 30000 });
 const breaks = await page.evaluate(() => window.adlyser.breaks.map((b) => ({ id: b.id, time: b.time })));
 console.log("breaks from VMAP:", JSON.stringify(breaks));
@@ -74,7 +74,7 @@ const start1 = log.find((e) => e.event === "ad_start" && e.breakId === b1.id);
 check(!!start1 && start1.at >= b1.time - 0.1 && start1.at <= b1.time + 0.7, "ad starts at the break time", `(break ${b1.time}s, started at ${start1?.at}s)`);
 check(s1.length > 3 && s1.every((s) => s.contentPaused), "content stays paused during the ad", `(${s1.length} samples)`);
 check(s1.every((s) => Math.abs(s.content - s1[0].content) < 0.3), "content position frozen during the ad");
-check(s1.every((s) => s.adShown) && s1.some((s) => /^Ad · 0:0\d$/.test(s.pill) || s.pill === "Ad · 0:10"), "ad overlay and 'Ad · m:ss' pill shown", `(last pill: ${s1.at(-1)?.pill})`);
+check(s1.every((s) => s.adShown) && s1.some((s) => /^AD00:(0\d|10)/.test(s.pill)), "ad overlay with the 'AD mm:ss' countdown shown", `(last pill: ${s1.at(-1)?.pill})`);
 const adWall = (s1.at(-1).wall - s1[0].wall) / 1000;
 check(adWall > 7 && adWall < 12, "ad plays for about its 10 s duration", `(~${adWall.toFixed(1)}s)`);
 await sleep(2000);

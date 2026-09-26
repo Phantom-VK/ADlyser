@@ -92,20 +92,30 @@ def route_after_settle(state: State) -> str:
 class Pipeline:
     """Holds the clients and paths for one video and provides the graph nodes."""
 
-    def __init__(self, video: Path, settings: Settings, out_dir: Path, base_url: str = "") -> None:
+    def __init__(
+        self,
+        video: Path,
+        settings: Settings,
+        out_dir: Path,
+        base_url: str = "",
+        embedder: Embedder | None = None,
+    ) -> None:
         """Create the pipeline for one video.
 
         :param video: path to the video.
         :param settings: loaded settings.
         :param out_dir: where vmap.xml and debug.json go.
         :param base_url: prefix for creative URLs (empty gives root-relative URLs).
+        :param embedder: an already loaded embedder to share (the API loads it once at startup).
         """
         self.video = video
         self.settings = settings
         self.out_dir = out_dir
         self.base_url = base_url
         self.vision, self.text = make_clients(settings)
-        self.embedder = Embedder(settings.matcher.embed_model, DiskCache(settings.cache_dir / "embeddings"))
+        self.embedder = embedder or Embedder(
+            settings.matcher.embed_model, DiskCache(settings.cache_dir / "embeddings")
+        )
         self.frames_dir = settings.cache_dir / "frames" / file_fingerprint(video)
         self.started = time.perf_counter()
 
@@ -354,7 +364,7 @@ class Pipeline:
             if not path.exists():
                 await asyncio.to_thread(make_slate, title, subtitle, path, st.creatives)
             return Creative(ad_id=ad_id, title=title, duration_s=st.creatives.duration_s,
-                            media_url=f"{self.base_url}/{path.as_posix()}", width=st.creatives.width,
+                            media_url=f"{self.base_url}/data/creatives/{path.name}", width=st.creatives.width,
                             height=st.creatives.height)  # fmt: skip
 
         specs: list[AdBreakSpec] = []
@@ -425,6 +435,7 @@ async def run_pipeline(
     out_dir: Path,
     base_url: str = "",
     on_event: Callable[[str, float], None] | None = None,
+    embedder: Embedder | None = None,
 ) -> DebugReport:
     """Run the whole pipeline on one video and write vmap.xml and debug.json to ``out_dir``.
 
@@ -433,10 +444,11 @@ async def run_pipeline(
     :param out_dir: output directory.
     :param base_url: prefix for creative URLs.
     :param on_event: called as ``on_event(node, elapsed_s)`` when each node finishes (progress events).
+    :param embedder: an already loaded embedder to share between runs.
     :return: the debug report.
     :raises AdlyserError: if measurement or the catalogue cannot be read (LLM failures fall back safely).
     """
-    pipe = Pipeline(video, settings, out_dir, base_url)
+    pipe = Pipeline(video, settings, out_dir, base_url, embedder)
     preload = asyncio.create_task(pipe.embedder.preload())  # overlaps the model load with measurement
     final: State = {}
     async for chunk in pipe.build().astream(

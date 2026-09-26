@@ -116,9 +116,22 @@ class ScenesConfig(BaseModel):
 
 
 class CatalogueConfig(BaseModel):
-    """Where the raw brand catalogue lives."""
+    """Where the raw brand catalogue lives, the brands added from the UI, and the merged file a run reads."""
 
     path: Path
+    added_path: Path
+    working_path: Path
+
+
+class ApiConfig(BaseModel):
+    """Web API settings: uploads, thumbnails and progress streams."""
+
+    uploads_dir: Path
+    upload_max_mb: int
+    upload_suffixes: list[str]
+    frame_step_s: float
+    large_frame_width: int
+    events_poll_s: float
 
 
 class MatcherConfig(BaseModel):
@@ -176,6 +189,7 @@ class Settings(BaseSettings):
     boundary: BoundaryConfig
     scenes: ScenesConfig
     catalogue: CatalogueConfig
+    api: ApiConfig
     matcher: MatcherConfig
     reviewer: ReviewerConfig
     creatives: CreativesConfig

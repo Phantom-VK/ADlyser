@@ -4,30 +4,40 @@ import type { AdBreak } from "./vmap";
 
 export interface MidrollState {
   mode: "content" | "ad";
+  /** The break whose ad is playing, while `mode` is "ad". */
+  current: AdBreak | null;
   /** What happened, in order, for debugging and browser checks. */
   log: { event: string; at: number; breakId?: string }[];
 }
 
 type Player = ReturnType<typeof videojs>;
 
+/** Reaching a break within this many seconds of its time counts as a natural mid-roll, not a seek-past. */
 const NATURAL_WINDOW_S = 1.0;
-
-const clock = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 /**
  * Attach mid-roll behaviour to a content player.
  * - Reaching a break during normal playback plays its ad, then resumes at the break time.
  * - Seeking past unplayed breaks plays the latest one, then resumes at the seek target.
  * - A break plays once. An ad that fails to load is skipped and content resumes.
+ * - Breaks at or before the current position when attached count as already played.
+ *
+ * @param onChange called whenever `mode` or `current` changes, so the page can show the ad state.
+ * @returns the live state and a function that removes every listener.
  */
 export function attachMidrolls(
   player: Player,
   adEl: HTMLVideoElement,
-  pill: HTMLElement,
   breaks: AdBreak[],
-): MidrollState {
-  const state: MidrollState = { mode: "content", log: [] };
+  onChange: (state: MidrollState) => void = () => {},
+): { state: MidrollState; dispose: () => void } {
+  const state: MidrollState = { mode: "content", current: null, log: [] };
+  const listeners = new AbortController();
   let resumeAt = 0;
+  let frame = 0;
+
+  const start = player.currentTime() ?? 0;
+  if (start > 0) breaks.forEach((b) => (b.played = b.time <= start));
 
   const note = (event: string, breakId?: string) =>
     state.log.push({ event, at: Number((player.currentTime() ?? 0).toFixed(2)), breakId });
@@ -35,23 +45,22 @@ export function attachMidrolls(
   const finishAd = (event: string) => {
     if (state.mode !== "ad") return;
     state.mode = "content";
+    state.current = null;
     adEl.pause();
-    adEl.style.display = "none";
-    pill.style.display = "none";
     player.currentTime(resumeAt);
     void player.play();
     note(event);
+    onChange(state);
   };
 
   const playAd = (due: AdBreak, resume: number) => {
     state.mode = "ad";
+    state.current = due;
     resumeAt = resume;
     player.pause();
     note("ad_start", due.id);
     adEl.src = due.ad.url;
-    adEl.style.display = "block";
-    pill.style.display = "block";
-    pill.textContent = `Ad · ${clock(due.ad.duration)}`;
+    onChange(state);
     adEl.play().catch(() => finishAd("ad_blocked_resume"));
   };
 
@@ -65,20 +74,23 @@ export function attachMidrolls(
     playAd(latest, t - latest.time <= NATURAL_WINDOW_S ? latest.time : t);
   };
 
-  adEl.addEventListener("timeupdate", () => {
-    const left = Math.max(0, (adEl.duration || 0) - adEl.currentTime);
-    pill.textContent = `Ad · ${clock(left)}`;
-  });
-  adEl.addEventListener("ended", () => finishAd("ad_end_resume"));
-  adEl.addEventListener("error", () => finishAd("ad_error_resume"));
-
+  const opts = { signal: listeners.signal };
+  adEl.addEventListener("ended", () => finishAd("ad_end_resume"), opts);
+  adEl.addEventListener("error", () => finishAd("ad_error_resume"), opts);
   player.on("timeupdate", check);
   player.on("seeked", check);
   const tick = () => {
     if (!player.paused()) check();
-    requestAnimationFrame(tick);
+    frame = requestAnimationFrame(tick);
   };
-  requestAnimationFrame(tick);
+  frame = requestAnimationFrame(tick);
 
-  return state;
+  const dispose = () => {
+    cancelAnimationFrame(frame);
+    listeners.abort();
+    player.off("timeupdate", check);
+    player.off("seeked", check);
+    adEl.pause();
+  };
+  return { state, dispose };
 }
