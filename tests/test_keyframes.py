@@ -1,7 +1,7 @@
 import pytest
 
 from adlyser.config import BoundaryConfig, ReviewerConfig, StretchConfig
-from adlyser.perception.keyframes import boundary_times, stretch_times, sweep_times
+from adlyser.perception.keyframes import boundary_times, stretch_times, sweep_covers_scene, sweep_times
 
 CFG = StretchConfig(frame_interval_s=30, min_frames=3, max_frames=8, tool_rounds=2)
 
@@ -51,3 +51,12 @@ def test_sweep_frames_are_capped_and_never_empty():
     )
     assert len(sweep_times(0, 3000, cfg)) == 24
     assert len(sweep_times(50, 50.5, cfg)) == 1
+
+
+def test_sweep_coverage_is_full_only_when_the_cap_does_not_thin_the_frames():
+    cfg = ReviewerConfig(
+        sweep_interval_s=10, sweep_max_frames=40, tool_rounds=3, speech_window_s=15, max_loops=2
+    )
+    assert sweep_covers_scene(0, 400, cfg)
+    assert not sweep_covers_scene(0, 401, cfg)
+    assert sweep_covers_scene(0, 5, cfg)

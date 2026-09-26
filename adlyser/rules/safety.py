@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 
-from adlyser.schemas import Blocked, Brand, SafetyTag, Scene, SweepResult
+from adlyser.schemas import Blocked, Brand, SafetyTag, Scene, SweepRecord
 
 UNKNOWN_SCENE = "unknown_scene"
 
@@ -52,15 +52,18 @@ def add_sweep_tags(scene: Scene, found: Iterable[SafetyTag]) -> Scene:
     return scene.model_copy(update={"safety_tags": sorted(set(scene.safety_tags) | set(found))})
 
 
-def apply_sweep(scene: Scene, sweep: SweepResult, min_confidence: float) -> Scene:
-    """Fold a safety sweep into a scene: add its tags, and make the scene unknown if the sweep was unsure.
+def apply_sweep(scene: Scene, sweep: SweepRecord) -> Scene:
+    """Fold a safety sweep into a scene.
 
-    A failed sweep has confidence 0, so the scene becomes unknown and blocks every brand.
+    Seen and unsure tags are both added (unsure counts as present; tags are never removed). A sweep that
+    succeeded AND covered the whole scene at the configured interval clears ``unknown`` (dense evidence
+    replaces sparse). A failed or capped sweep leaves ``unknown`` as it was.
 
     :param scene: the scene.
-    :param sweep: the sweep result for that scene.
-    :param min_confidence: below this the sweep cannot vouch for the scene.
-    :return: the updated scene (tags only added).
+    :param sweep: the sweep record for that scene.
+    :return: the updated scene.
     """
-    out = add_sweep_tags(scene, sweep.safety_tags)
-    return out.model_copy(update={"unknown": scene.unknown or sweep.confidence < min_confidence})
+    out = add_sweep_tags(scene, [*sweep.safety_tags, *sweep.unsure_tags])
+    if sweep.ok and sweep.full_coverage:
+        out = out.model_copy(update={"unknown": False})
+    return out

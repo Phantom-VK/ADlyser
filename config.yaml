@@ -83,7 +83,7 @@ matcher:
 
 reviewer:
   sweep_interval_s: 10   # one sweep frame per this many seconds of the scene
-  sweep_max_frames: 24
+  sweep_max_frames: 40
   tool_rounds: 3
   speech_window_s: 15
   max_loops: 2           # veto loops back to the matcher or the pacing solver

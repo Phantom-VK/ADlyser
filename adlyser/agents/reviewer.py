@@ -11,33 +11,37 @@ from adlyser.llm.agent_loop import run_agent
 from adlyser.llm.client import LLMClient, user_message
 from adlyser.llm.prompts import BREAK_REVIEWER, SAFETY_SWEEP, clock, scene_line, speech_text, with_schema
 from adlyser.log import get_logger
-from adlyser.perception.keyframes import boundary_times, extract_frames, sweep_times
-from adlyser.schemas import Brand, Candidate, ReviewVerdict, Scene, SpeechSeg, SweepResult
+from adlyser.perception.keyframes import boundary_times, extract_frames, sweep_covers_scene, sweep_times
+from adlyser.schemas import Brand, Candidate, ReviewVerdict, Scene, SpeechSeg, SweepRecord, SweepResult
 
 log = get_logger(__name__)
 
-SWEEP_FAILED = SweepResult(safety_tags=[], evidence="sweep unavailable", confidence=0.0)
+SWEEP_FAILED = SweepResult(evidence="sweep unavailable")
 REVIEW_FAILED = ReviewVerdict(decision="veto", reason="review unavailable", retry="promo")
 
 
 async def sweep_scene(
     client: LLMClient, video: Path, frames_dir: Path, scene: Scene, settings: Settings
-) -> SweepResult:
-    """Look at frames across the FULL scene and list every safety tag seen. A failure has confidence 0.
+) -> SweepRecord:
+    """Look at frames across the FULL scene: tags seen, tags it is unsure about, and how much it covered.
 
     :param client: the vision client.
     :param video: path to the video.
     :param frames_dir: this video's frame cache directory.
     :param scene: the scene to sweep (its current tags are shown to the model).
     :param settings: loaded settings.
-    :return: the sweep result, or ``SWEEP_FAILED``.
+    :return: the record; ``ok`` is false when the frames or the call failed.
     """
-    times = sweep_times(scene.start, scene.end, settings.reviewer)
+    cfg = settings.reviewer
+    times = sweep_times(scene.start, scene.end, cfg)
+    full = sweep_covers_scene(scene.start, scene.end, cfg)
+    failed = SweepRecord(safety_tags=[], unsure_tags=[], evidence=SWEEP_FAILED.evidence, ok=False,
+                         full_coverage=full, frames=0)  # fmt: skip
     try:
         frames = await asyncio.to_thread(extract_frames, video, times, settings.frames, frames_dir)
     except PerceptionError as exc:
         log.error("sweep_frames_failed", extra={"scene": scene.index, "error": str(exc)[:200]})
-        return SWEEP_FAILED
+        return failed
     stamps = ", ".join(clock(t) for t in times)
     tags = ", ".join(t.value for t in scene.safety_tags) or "none"
     text = (
@@ -48,7 +52,11 @@ async def sweep_scene(
         {"role": "system", "content": with_schema(SAFETY_SWEEP, SweepResult)},
         user_message(text, frames, client.endpoint.image_detail),
     ]
-    return await client.chat_json("safety_sweep", messages, SweepResult, SWEEP_FAILED)
+    result = await client.chat_json("safety_sweep", messages, SweepResult, SWEEP_FAILED)
+    if result is SWEEP_FAILED:
+        return failed
+    return SweepRecord(safety_tags=result.safety_tags, unsure_tags=result.unsure_tags, evidence=result.evidence,
+                       ok=True, full_coverage=full, frames=len(times))  # fmt: skip
 
 
 async def review_break(

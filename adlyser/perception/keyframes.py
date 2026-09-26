@@ -37,6 +37,17 @@ def sweep_times(start: float, end: float, cfg: ReviewerConfig) -> list[float]:
     return [start + (end - start) * (i + 0.5) / n for i in range(n)]
 
 
+def sweep_covers_scene(start: float, end: float, cfg: ReviewerConfig) -> bool:
+    """Whether the sweep frame cap still allows one frame per interval across the whole scene.
+
+    :param start: scene start in seconds.
+    :param end: scene end in seconds.
+    :param cfg: sweep interval and frame cap.
+    :return: false when the cap thinned the frames below the configured interval.
+    """
+    return math.ceil((end - start) / cfg.sweep_interval_s) <= cfg.sweep_max_frames
+
+
 def boundary_times(t: float, cfg: BoundaryConfig, duration_s: float) -> list[float]:
     """Times of the frames around a cut: the offsets before it, then the same offsets after it.
 

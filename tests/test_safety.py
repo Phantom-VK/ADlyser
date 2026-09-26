@@ -1,7 +1,7 @@
 import random
 
 from adlyser.rules.safety import UNKNOWN_SCENE, add_sweep_tags, apply_sweep, blocking_tags, split_brands
-from adlyser.schemas import Brand, SafetyTag, Scene, SweepResult
+from adlyser.schemas import Brand, SafetyTag, Scene, SweepRecord
 
 T = SafetyTag
 
@@ -104,21 +104,52 @@ def test_a_sweep_that_adds_death_grief_turns_an_eligible_food_brand_into_a_block
     assert eligible == [] and blocked[0].tags == ["death_grief"]
 
 
-def sweep(tags=(), confidence=0.9):
-    return SweepResult(safety_tags=list(tags), evidence="e", confidence=confidence)
+def sweep(tags=(), unsure=(), ok=True, full=True):
+    return SweepRecord(
+        safety_tags=list(tags), unsure_tags=list(unsure), evidence="e", ok=ok, full_coverage=full, frames=10
+    )
 
 
-def test_apply_sweep_adds_tags_and_keeps_a_confident_scene_known():
-    out = apply_sweep(scene({T.ALCOHOL}), sweep([T.DEATH_GRIEF]), 0.5)
-    assert set(out.safety_tags) == {T.ALCOHOL, T.DEATH_GRIEF} and not out.unknown
+def test_apply_sweep_adds_seen_tags_and_keeps_the_existing_ones():
+    out = apply_sweep(scene({T.ALCOHOL}), sweep([T.DEATH_GRIEF]))
+    assert set(out.safety_tags) == {T.ALCOHOL, T.DEATH_GRIEF}
 
 
-def test_an_unsure_or_failed_sweep_makes_the_scene_unknown_and_blocks_every_brand():
-    assert apply_sweep(scene(), sweep(confidence=0.49), 0.5).unknown
-    assert apply_sweep(scene(), sweep(confidence=0.0), 0.5).unknown
-    swept = apply_sweep(scene(), sweep(confidence=0.0), 0.5)
-    assert blocking_tags(brand("plain"), swept, scene()) == [UNKNOWN_SCENE]
+def test_an_unsure_tag_counts_as_present_and_blocks_the_matching_brand():
+    swept = apply_sweep(scene(), sweep(unsure=[T.DEATH_GRIEF]))
+    assert T.DEATH_GRIEF in swept.safety_tags
+    assert blocking_tags(FOOD, swept, scene()) == ["death_grief"]
 
 
-def test_a_sweep_never_makes_an_unknown_scene_known():
-    assert apply_sweep(scene(unknown=True), sweep([]), 0.5).unknown
+def test_a_failed_sweep_keeps_unknown_as_it_was():
+    assert apply_sweep(scene(unknown=True), sweep(ok=False)).unknown
+    assert not apply_sweep(scene(unknown=False), sweep(ok=False)).unknown
+
+
+def test_a_capped_sweep_keeps_unknown_as_it_was():
+    assert apply_sweep(scene(unknown=True), sweep(full=False)).unknown
+
+
+def test_a_full_coverage_sweep_clears_unknown():
+    out = apply_sweep(scene(unknown=True), sweep([T.ALCOHOL]))
+    assert not out.unknown and out.safety_tags == [T.ALCOHOL]
+
+
+def test_a_full_coverage_sweep_that_finds_death_grief_clears_unknown_but_still_blocks_the_food_brand():
+    out = apply_sweep(scene(unknown=True), sweep([T.DEATH_GRIEF]))
+    assert not out.unknown and blocking_tags(FOOD, out, scene()) == ["death_grief"]
+
+
+def test_sweep_never_removes_tags_whatever_the_outcome():
+    rng = random.Random(5)
+    tags = list(SafetyTag)
+    for _ in range(100):
+        start = set(rng.sample(tags, rng.randint(0, 6)))
+        rec = sweep(
+            rng.sample(tags, rng.randint(0, 4)),
+            rng.sample(tags, rng.randint(0, 3)),
+            rng.random() < 0.7,
+            rng.random() < 0.5,
+        )
+        out = apply_sweep(scene(start, unknown=rng.random() < 0.5), rec)
+        assert start <= set(out.safety_tags)

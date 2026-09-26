@@ -63,13 +63,14 @@ candidate brands that are already known to be safe for this break.
 - Only use the brand ids you were given. Reply with JSON only."""
 
 SAFETY_SWEEP = f"""You are a brand-safety inspector for a Bengali TV drama. You receive frames spread
-across ONE whole scene (in time order). List EVERY tag from this fixed list that applies to ANYTHING
-visible in ANY frame, even briefly (a funeral or hospital insert of a few seconds still counts).
-Only use these exact values: {_TAXONOMY}.
+across ONE whole scene (in time order). Report two lists, using only these exact tag values: {_TAXONOMY}.
 
-- The scene was already tagged by an earlier pass; you may be shown its current tags. Report what you
-  see, including tags already present. Never remove or argue against a tag.
-- confidence: 0 to 1. Use a low value if the frames are dark, ambiguous or you are guessing.
+- safety_tags: every tag that clearly applies to ANYTHING visible in ANY frame, even briefly
+  (a funeral or hospital insert of a few seconds still counts).
+- unsure_tags: tags that MIGHT apply but you cannot tell (dark, blurry, partial, ambiguous). If in doubt,
+  put the tag here rather than leaving it out. Unsure tags are treated as present.
+- The scene may already carry tags from an earlier pass. Report what you see, including tags already
+  present. Never remove or argue against a tag.
 - evidence: one short sentence naming what you saw and roughly where.
 - Reply with JSON only."""
 

@@ -79,8 +79,13 @@ class ShortlistEntry(BaseModel):
 
 
 class BrandChoice(BaseModel):
-    """BrandMatcher result for one break: the chosen brand (None = promo slot) and the evidence."""
+    """BrandMatcher result for one break: the chosen brand (None = no brand) and the evidence.
 
+    ``kind`` says why there is no brand: ``blocked`` (every brand blocked, or an unknown scene) or
+    ``no_fit`` (eligible brands exist but none fits well).
+    """
+
+    kind: Literal["brand", "blocked", "no_fit"]
     brand_id: str | None
     shortlist: list[ShortlistEntry]
     blocked: list[Blocked]
@@ -102,11 +107,22 @@ class Rerank(BaseModel):
 
 
 class SweepResult(BaseModel):
-    """Safety sweep output: every safety tag seen across the frames of one scene."""
+    """Safety sweep output: tags clearly seen across the frames of one scene, and tags it is unsure about."""
 
     safety_tags: list[SafetyTag] = Field(default_factory=list)
+    unsure_tags: list[SafetyTag] = Field(default_factory=list)
     evidence: str
-    confidence: float = Field(ge=0, le=1)
+
+
+class SweepRecord(BaseModel):
+    """What a safety sweep of one scene achieved: its tags, and whether it can vouch for the whole scene."""
+
+    safety_tags: list[SafetyTag]
+    unsure_tags: list[SafetyTag]
+    evidence: str
+    ok: bool
+    full_coverage: bool
+    frames: int
 
 
 class ReviewVerdict(BaseModel):
@@ -256,7 +272,14 @@ class BreakPlan(BaseModel):
     before: int
     after: int
     status: Literal[
-        "needs_brand", "needs_review", "approved", "promo", "dropped", "retry_brand", "retry_candidate"
+        "needs_brand",
+        "needs_review",
+        "approved",
+        "promo",
+        "dropped",
+        "blocked",
+        "retry_brand",
+        "retry_candidate",
     ]
     choice: BrandChoice | None = None
     review: ReviewVerdict | None = None
@@ -275,7 +298,7 @@ class CandidateRecord(BaseModel):
     is_scene_change: bool
     break_score: float
     boundary_reason: str
-    status: Literal["not_scene_change", "below_min_score", "pacing_rejected", "selected", "vetoed"]
+    status: Literal["not_scene_change", "below_min_score", "pacing_rejected", "selected", "vetoed", "blocked"]
     reason: str
 
 
@@ -288,12 +311,12 @@ class StretchRecord(BaseModel):
 
 
 class SceneRecord(BaseModel):
-    """debug.json: a scene and the tags the safety sweep added to it."""
+    """debug.json: a scene and what the safety sweep did to it."""
 
     scene: Scene
     sweep_added: list[SafetyTag]
-    sweep_evidence: str = ""
-    sweep_confidence: float | None = None
+    sweep: SweepRecord | None = None
+    unknown_before_sweep: bool = False
 
 
 class BlockedRecord(BaseModel):
