@@ -1,0 +1,40 @@
+# All tunables live here. Override any value with ADLYSER_<SECTION>__<KEY> env vars or in .env.
+
+videos_dir: /home/vikramaditya/Downloads/hackathon_contents-20260926T060049Z-1-001/hackathon_contents
+data_dir: data
+cache_dir: data/cache
+
+llm:
+  concurrency: 8
+  timeout_s: 120
+  vision:
+    provider: deepseek
+    base_url: https://api.deepseek.com
+    model: deepseek-flash
+    image_detail: low
+  text:
+    provider: deepseek
+    base_url: https://api.deepseek.com
+    model: deepseek-v4-pro   # confirm against GET /models
+
+transcribe:
+  model_size: small
+  device: cpu
+  compute_type: int8
+  language: bn
+
+candidates:
+  min_silence_s: 0.8
+  speech_guard_s: 0.4
+  skip_start_s: 180
+  skip_end_s: 120
+  min_spacing_s: 20
+  max_candidates: 60
+  allow_long_silence_without_cut: false
+  long_silence_s: 2.0
+
+pacing:
+  max_breaks_per_hour: 6
+  min_gap_s: 300
+  ad_duration_s: 30
+  max_ad_load_pct: 12
