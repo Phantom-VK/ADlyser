@@ -1,0 +1,64 @@
+#!/bin/bash
+# First-boot setup: system packages, Caddy, Node 22, uv, repo clone, Caddyfile and the API service.
+# The app itself (uv sync, web build, .env, videos, data/) is finished over SSH; see deploy/terraform/README.md.
+set -euxo pipefail
+exec > /var/log/adlyser-bootstrap.log 2>&1
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y ffmpeg git curl rsync gnupg debian-keyring debian-archive-keyring apt-transport-https
+
+# Caddy (official apt repo)
+curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list
+# Node 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y caddy nodejs
+
+# uv for the ubuntu user
+sudo -u ubuntu bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+
+# Repo and video folder
+sudo -u ubuntu git clone ${repo_url} /home/ubuntu/ADlyser
+mkdir -p /srv/videos && chown ubuntu:ubuntu /srv/videos
+
+# Caddy: static web build + API proxy, automatic HTTPS on the sslip.io name
+cat > /etc/caddy/Caddyfile <<'EOF'
+${hostname} {
+	encode gzip
+	@api path /api/* /videos/* /data/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1
+		}
+	}
+	handle {
+		root * /home/ubuntu/ADlyser/web/dist
+		try_files {path} /index.html
+		file_server
+	}
+}
+EOF
+chmod o+x /home/ubuntu
+systemctl reload caddy || systemctl restart caddy
+
+# API service (installed, not started: it needs uv sync, .env and data first)
+cat > /etc/systemd/system/adlyser.service <<'EOF'
+[Unit]
+Description=ADlyser API
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ADlyser
+Environment=ADLYSER_VIDEOS_DIR=/srv/videos
+ExecStart=/home/ubuntu/.local/bin/uv run uvicorn adlyser.api:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+
+touch /var/log/adlyser-bootstrap.done

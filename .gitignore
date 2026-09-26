@@ -66,3 +66,10 @@ npm-debug.log*
 *.swp
 .DS_Store
 Thumbs.db
+
+# --- Terraform state (never public) ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
