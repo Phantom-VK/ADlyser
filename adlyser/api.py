@@ -365,7 +365,11 @@ def create_app(settings: Settings | None = None, embedder: Embedder | None = Non
             clients["text"] = make_clients(settings)[1]
         record = brand_record(text)
         try:
-            brands = await normalise_catalogue(clients["text"], json.dumps([record], ensure_ascii=False))
+            brands = await normalise_catalogue(
+                clients["text"],
+                json.dumps([record], ensure_ascii=False),
+                settings.catalogue.default_negative_tags,
+            )
         except CatalogueError as exc:
             raise HTTPException(422, str(exc)) from exc
         if len(brands) != 1:

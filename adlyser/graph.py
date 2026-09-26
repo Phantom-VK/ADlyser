@@ -124,7 +124,8 @@ class Pipeline:
     async def catalogue(self, state: State) -> State:
         """Normalise the brand catalogue (cached; any format)."""
         raw = read_catalogue(self.settings.catalogue.path)
-        return {"brands": await normalise_catalogue(self.text, raw)}
+        floor = self.settings.catalogue.default_negative_tags
+        return {"brands": await normalise_catalogue(self.text, raw, floor)}
 
     async def measure(self, state: State) -> State:
         """Measure speech and cuts, find candidate pauses and the stretches, then add the optional transcript."""

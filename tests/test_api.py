@@ -71,7 +71,7 @@ def env(tmp_path: Path):
             "api": ApiConfig(uploads_dir=data / "uploads", upload_max_mb=1, upload_suffixes=[".mp4"],
                              frame_step_s=0.5, large_frame_width=800, events_poll_s=0.01),
             "catalogue": CatalogueConfig(path=Path("catalogue/brands.json"), added_path=data / "cat" / "added.json",
-                                         working_path=data / "cat" / "working.json"),
+                                         working_path=data / "cat" / "working.json", default_negative_tags=[]),
         }
     )  # fmt: skip
 
@@ -336,7 +336,7 @@ def normaliser(monkeypatch):
     """Replace the CatalogueNormaliser: the brand name is the record's first value."""
     seen: list[str] = []
 
-    async def normalise(client, raw):
+    async def normalise(client, raw, floor):
         seen.append(raw)
         records = json.loads(raw)
         return [brand(str(next(iter(r.values())))) for r in records]
@@ -371,7 +371,7 @@ def test_adding_saves_the_raw_record_and_lists_it(client, env, normaliser):
 
 
 def test_a_brand_that_cannot_be_read_is_rejected(client, monkeypatch):
-    async def nothing(client, raw):
+    async def nothing(client, raw, floor):
         return []
 
     monkeypatch.setattr(api, "normalise_catalogue", nothing)
@@ -381,7 +381,7 @@ def test_a_brand_that_cannot_be_read_is_rejected(client, monkeypatch):
 
 
 def test_text_with_two_brands_is_rejected(client, monkeypatch):
-    async def two(client, raw):
+    async def two(client, raw, floor):
         return [brand("A"), brand("B")]
 
     monkeypatch.setattr(api, "normalise_catalogue", two)

@@ -12,6 +12,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from adlyser.schemas import SafetyTag
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -125,6 +127,7 @@ class CatalogueConfig(BaseModel):
     path: Path
     added_path: Path
     working_path: Path
+    default_negative_tags: list[SafetyTag]
 
 
 class ApiConfig(BaseModel):

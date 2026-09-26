@@ -80,6 +80,7 @@ catalogue:
   path: catalogue/brands.json                 # the seed catalogue, in any format
   added_path: data/catalogue/added.json       # brands added from the UI (raw records)
   working_path: data/catalogue/working.json   # seed + added, what a run reads
+  default_negative_tags: [death_grief, funeral_ritual, sexual_content]   # every brand honours these, so a brand with no negatives is never a wildcard
 
 api:
   uploads_dir: data/uploads
