@@ -203,9 +203,9 @@ def test_halving_stops_at_the_minimum_chunk_length():
     assert len(chunks) == 4  # 120 -> 60 -> 30, then it stops
 
 
-def test_the_shipped_defaults_keep_the_transcript_off_and_use_groq_large_v3():
+def test_the_shipped_config_turns_the_transcript_on_with_groq_large_v3():
     from adlyser.config import get_settings
 
     cfg = get_settings().transcribe
-    assert cfg.enabled is False and cfg.provider == "groq" and cfg.model == "whisper-large-v3"
+    assert cfg.enabled is True and cfg.provider == "groq" and cfg.model == "whisper-large-v3"
     assert TranscribeConfig().provider == "local" and TranscribeConfig().enabled is False
