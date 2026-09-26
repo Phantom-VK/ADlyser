@@ -17,7 +17,7 @@ It outputs an IAB **VMAP 1.0** manifest (inline VAST 3.0), a **debug JSON** expl
 
 ## What is used, in plain words
 
-| Job | What we use | Where it runs |
+| Job | What I use | Where it runs |
 |---|---|---|
 | Understand the video (what happens in each scene, which pauses are real scene changes, which brand fits, final review) | **DeepSeek** `deepseek-flash` (vision and text). DeepSeek's API docs name it DeepSeek-V4.1-Flash, and its weights are published on Hugging Face under the MIT license | DeepSeek's hosted API |
 | Bengali transcript (optional, noisy hint only) | **Whisper `whisper-large-v3`** (open weights, Apache 2.0 on Hugging Face) | Groq's hosted API |
@@ -25,15 +25,15 @@ It outputs an IAB **VMAP 1.0** manifest (inline VAST 3.0), a **debug JSON** expl
 | Find silences, cuts, black frames | Silero VAD, PySceneDetect, ffmpeg | On our own server |
 | Deploy | **Terraform** script that builds one AWS EC2 server with HTTPS | AWS, ap-south-1 |
 
-## Open source and self-hosting: what we tried
+## Open source and self-hosting: what I tried
 
-hoichoi prefers open-source models on its own infrastructure, so we planned to self-host the models on AWS GPU servers. We asked AWS for GPU quota, but we could not get a GPU instance in time, so we dropped that plan.
+hoichoi prefers open-source models on its own infrastructure, so I planned to self-host the models on AWS GPU servers. I asked AWS for GPU quota, but I could not get a GPU instance in time, so I dropped that plan.
 
-What we did instead:
+What I did instead:
 
-- The models we use have open weights on Hugging Face (DeepSeek-V4.1-Flash and bge-m3 under MIT, Whisper large-v3 under Apache 2.0). We match `deepseek-flash` to the Hugging Face model by name, from DeepSeek's API docs. We did not check that the API serves exactly those published weights.
-- But we do not self-host the DeepSeek or Whisper models. We call them through hosted APIs (DeepSeek and Groq). Only bge-m3 runs on our own server. So the running demo depends on two outside services.
-- Every model sits behind a setting in `config.yaml` (`base_url` and `model`). The code talks to the model through the OpenAI-style API, so pointing it at a self-hosted server that speaks the same API (for example vLLM) should only need a config change. We have not tested this.
+- The models I use have open weights on Hugging Face (DeepSeek-V4.1-Flash and bge-m3 under MIT, Whisper large-v3 under Apache 2.0). I match `deepseek-flash` to the Hugging Face model by name, from DeepSeek's API docs. I did not check that the API serves exactly those published weights.
+- But I do not self-host the DeepSeek or Whisper models. I call them through hosted APIs (DeepSeek and Groq). Only bge-m3 runs on our own server. So the running demo depends on two outside services.
+- Every model sits behind a setting in `config.yaml` (`base_url` and `model`). The code talks to the model through the OpenAI-style API, so pointing it at a self-hosted server that speaks the same API (for example vLLM) should only need a config change. I have not tested this.
 - The transcript also has a `local` mode (faster-whisper on the server's CPU). It works, but its Bengali is much weaker than `whisper-large-v3`, so the demo uses Groq.
 - Nothing in the code needs a GPU.
 
@@ -205,7 +205,7 @@ A brand's negative contexts are mapped to safety tags and unioned with a default
 - Dropped breaks are not back-filled; pacing should re-run after a drop.
 - Reviewer vetoes need frames from both sides of the cut.
 - Mood and tone are not yet used for brand fit.
-- DeepSeek and Whisper run on hosted APIs, not on our own servers. Self-hosting them needs a GPU server. It should only need a config change, but we have not tried it.
+- DeepSeek and Whisper run on hosted APIs, not on our own servers. Self-hosting them needs a GPU server. It should only need a config change, but I have not tried it.
 
 ## License
 
