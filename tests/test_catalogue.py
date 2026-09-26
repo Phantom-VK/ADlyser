@@ -101,11 +101,15 @@ async def test_a_failed_normaliser_call_gives_no_brands_so_every_slot_is_a_promo
     assert await normalise_catalogue(FakeText(None), "raw") == []
 
 
-def test_the_shipped_catalogue_has_eight_fictional_brands_and_a_food_brand_with_grief_contexts():
+def test_the_shipped_catalogue_has_twelve_brands_and_every_food_brand_avoids_grief_contexts():
     raw = json.loads(CATALOGUE.read_text())
-    assert len(raw) == 8
-    food = next(b for b in raw if "meal" in b["sector"].lower() or "food" in b["sector"].lower())
-    assert all(word in food["never_show_after"] for word in ("death", "funeral", "illness"))
+    assert len(raw) == 12
+    assert len({b["name"] for b in raw}) == 12
+    food = [b for b in raw if b["category"] in ("Food", "Grocery")]
+    assert food
+    for brand in food:
+        text = " ".join(brand["negative_contexts"]).lower()
+        assert "funeral" in text and "illness" in text
 
 
 def test_missing_or_empty_catalogue_raises(tmp_path):
