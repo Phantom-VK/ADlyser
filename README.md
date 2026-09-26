@@ -17,18 +17,17 @@ It outputs an IAB **VMAP 1.0** manifest (inline VAST 3.0), a **debug JSON** expl
 
 ## Approach: measure with tools, decide with AI, guard with code
 
-1. **Measure** (deterministic): shot cuts (PySceneDetect), speech and silence (Silero VAD), a Bengali transcript (faster-whisper), and keyframes (ffmpeg).
+1. **Measure, pause-first** (deterministic): start from the audio. Find silences (Silero VAD), keep only those that contain a camera cut or fade to black (PySceneDetect, ffmpeg), and transcribe the Bengali dialogue (faster-whisper). Mid-sentence cuts are impossible by construction.
 2. **Decide** (AI agents in a LangGraph pipeline):
-   - **SceneAnalyst** (vision): describes each scene and tags its activity, mood and safety topics.
-   - **SceneSegmenter**: merges shots into story scenes.
-   - **BreakJudge**: rates how natural each pause is.
+   - **StretchAnalyst** (vision): looks at frames and dialogue across each stretch between candidate pauses, and tags its activity, mood and safety topics.
+   - **BoundaryJudge** (vision): decides whether each pause is a real scene change and how natural a break it is. Confirmed changes form the scene segmentation.
    - **CatalogueNormaliser**: turns any brand catalogue (JSON, CSV or free text) into one schema.
    - **BrandMatcher**: shortlists brands by embeddings, then an LLM re-ranks them.
    - **BreakReviewer**: can veto a break.
 3. **Guard** (code, never an LLM):
    - Cuts only in real silence, snapped to a shot cut.
    - Pacing is solved as a constraint problem.
-   - Negative contexts are a set-intersection block on the scenes both before and after the break.
+   - Negative contexts are a hard block: a brand is ruled out if its blocked topics appear in the scene before **or** the scene after the break.
    - When in doubt, ADlyser drops the brand or the break, never the rule.
 
 Every decision is recorded with its evidence and shown in the player's **Decision Trace**. A new brand can be added and re-matched with no code changes.
