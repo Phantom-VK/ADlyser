@@ -106,32 +106,47 @@ def measure_signals(video: Path, settings: Settings) -> Perception:
     )
 
 
-def _transcribe_subprocess(wav: Path) -> list[TranscriptSeg]:
-    """Transcribe in a fresh process (torch and ctranslate2 must not share one)."""
+def _transcribe_subprocess(wav: Path, speech: list[SpeechSeg]) -> list[TranscriptSeg]:
+    """Transcribe the speech spans in a fresh process (torch and ctranslate2 must not share one)."""
     with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "transcript.json"
-        proc = subprocess.run(
-            [sys.executable, "-m", "adlyser.perception.transcribe", str(wav), str(out)], check=False
-        )
+        speech_json, out = Path(tmp) / "speech.json", Path(tmp) / "transcript.json"
+        speech_json.write_text(json.dumps([s.model_dump(mode="json") for s in speech]))
+        cmd = [sys.executable, "-m", "adlyser.perception.transcribe", str(wav), str(speech_json), str(out)]
+        proc = subprocess.run(cmd, check=False)
         if proc.returncode != 0 or not out.exists():
             raise PerceptionError(f"transcription process failed for {wav.name} (exit {proc.returncode})")
         return [TranscriptSeg.model_validate(x) for x in json.loads(out.read_text())]
 
 
 def measure_transcript(perception: Perception, settings: Settings) -> Perception:
-    """Add the transcript (cached). Run this after candidates are written.
+    """Add the optional transcript (cached). Does nothing unless ``transcribe.enabled`` is true.
+
+    Run this after candidates are written. Nothing downstream may require the result.
 
     :param perception: result of ``measure_signals``.
     :param settings: loaded settings.
-    :return: a copy of ``perception`` with the transcript and its timing filled in.
+    :return: ``perception`` unchanged when disabled, else a copy with the transcript and its timing.
     :raises PerceptionError: if transcription fails.
     """
-    cache = DiskCache(settings.cache_dir / "perception")
     tcfg = settings.transcribe
+    if not tcfg.enabled:
+        log.info("transcript_disabled")
+        return perception
+    cache = DiskCache(settings.cache_dir / "perception")
     key = content_key(
-        perception.fingerprint, "transcript", tcfg.model_dump(exclude={"device", "compute_type"})
+        perception.fingerprint,
+        "transcript",
+        tcfg.model_dump(exclude={"device", "compute_type"}),
+        settings.vad.model_dump(),
     )
     timings = dict(perception.timings_s)
     wav = wav_path(settings, perception.fingerprint)
-    transcript = _stage(cache, "transcript", key, TranscriptSeg, lambda: _transcribe_subprocess(wav), timings)
+    transcript = _stage(
+        cache,
+        "transcript",
+        key,
+        TranscriptSeg,
+        lambda: _transcribe_subprocess(wav, perception.speech),
+        timings,
+    )
     return perception.model_copy(update={"transcript": transcript, "timings_s": timings})

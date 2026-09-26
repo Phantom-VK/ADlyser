@@ -34,8 +34,10 @@ class LlmConfig(BaseModel):
 
 
 class TranscribeConfig(BaseModel):
-    """faster-whisper settings. Never assume a GPU."""
+    """faster-whisper settings. Optional and off by default; never assume a GPU."""
 
+    enabled: bool = False
+    clip_merge_gap_s: float = 1.0
     model_size: str = "small"
     device: str = "cpu"
     compute_type: str = "int8"

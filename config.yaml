@@ -18,6 +18,8 @@ llm:
     model: deepseek-v4-pro   # confirm against GET /models
 
 transcribe:
+  enabled: false   # optional context only; nothing downstream may require it
+  clip_merge_gap_s: 1.0
   model_size: small
   device: cpu
   compute_type: int8
