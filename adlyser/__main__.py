@@ -1,12 +1,14 @@
 """Command line: ``uv run python -m adlyser measure <video> --out data/<name>/``."""
 
 import argparse
+import asyncio
 from pathlib import Path
 
 from adlyser.config import get_settings
 from adlyser.emit.creatives import make_slate
 from adlyser.emit.vmap import build_vmap
 from adlyser.errors import PerceptionError
+from adlyser.graph import run_analysis
 from adlyser.log import get_logger
 from adlyser.perception.measure import measure_signals, measure_transcript
 from adlyser.rules.candidates import find_candidates
@@ -94,6 +96,18 @@ def cmd_skeleton(video: Path, out: Path, base_url: str) -> None:
     )
 
 
+def cmd_analyse(video: Path, out: Path) -> None:
+    """Run the AI pipeline up to the chosen breaks and write analysis.json.
+
+    :param video: path to the video.
+    :param out: output directory.
+    """
+    analysis = asyncio.run(run_analysis(video, get_settings()))
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "analysis.json").write_text(analysis.model_dump_json(indent=1))
+    log.info("analysis", extra={"out": out / "analysis.json", "llm_stats": analysis.llm_stats})
+
+
 def main() -> None:
     """Parse arguments and dispatch."""
     parser = argparse.ArgumentParser(prog="adlyser")
@@ -101,6 +115,9 @@ def main() -> None:
     m = sub.add_parser("measure", help="perception + candidate pauses for one video")
     m.add_argument("video", type=Path)
     m.add_argument("--out", type=Path, required=True)
+    a = sub.add_parser("analyse", help="AI pipeline: stretches, boundaries, scenes, pacing -> analysis.json")
+    a.add_argument("video", type=Path)
+    a.add_argument("--out", type=Path, required=True)
     k = sub.add_parser("skeleton", help="throwaway: longest-silence breaks + promo slate -> vmap.xml")
     k.add_argument("video", type=Path)
     k.add_argument("--out", type=Path, required=True)
@@ -108,6 +125,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "measure":
         cmd_measure(args.video, args.out)
+    elif args.command == "analyse":
+        cmd_analyse(args.video, args.out)
     elif args.command == "skeleton":
         cmd_skeleton(args.video, args.out, args.base_url)
 
