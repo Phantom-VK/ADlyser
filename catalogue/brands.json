@@ -38,20 +38,21 @@
     ]
   },
   {
-    "name": "Nexora Money",
-    "category": "Finance",
-    "tagline": "Plan today. Live ahead.",
-    "description": "A fictional digital finance platform for everyday payments, savings, budgeting, and personal financial planning.",
+    "name": "Nexora Insurance",
+    "category": "Insurance",
+    "tagline": "Secure today. Smile tomorrow.",
+    "description": "A fictional insurance brand offering family security plans, health cover, home protection, and travel insurance for everyday households.",
     "target_contexts": [
-      "office scenes",
-      "shopping",
-      "travel planning",
-      "paying bills",
-      "young professionals discussing money"
+      "family security and planning for the future",
+      "new home or moving into a house",
+      "travel and holiday planning",
+      "young couples or parents starting out",
+      "conversations about savings and protecting the family"
     ],
     "negative_contexts": [
       "funerals and mourning",
-      "medical or illness scenes",
+      "hospital or serious illness scenes",
+      "accidents and injury",
       "crime and weapons",
       "hunger and poverty"
     ]
@@ -209,17 +210,22 @@
     ]
   },
   {
-    "name": "Skyloom",
-    "category": "Technology",
-    "tagline": "Build what's next",
-    "description": "A fictional consumer technology brand creating laptops, smart devices, and productivity hardware for students and professionals.",
+    "name": "Leafline Tea",
+    "category": "Beverage",
+    "tagline": "Every cup, a little adda",
+    "description": "A fictional everyday chai brand for slow mornings, evening adda with friends, and office tea breaks.",
     "target_contexts": [
-      "office scenes",
-      "college life",
-      "studying",
-      "working from home",
-      "creative work"
+      "everyday chai moments",
+      "adda with friends",
+      "a quiet morning at home",
+      "office tea breaks",
+      "rainy evenings"
     ],
-    "negative_contexts": []
+    "negative_contexts": [
+      "funerals and mourning",
+      "illness or hospital scenes",
+      "violence",
+      "alcohol or drugs"
+    ]
   }
 ]

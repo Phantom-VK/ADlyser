@@ -35,8 +35,8 @@ def test_disabled_never_loads_whisper_or_spawns_a_process(settings, monkeypatch)
     assert "transcript" not in out.timings_s
 
 
-def test_default_config_has_transcript_disabled():
-    assert get_settings().transcribe.enabled is False
+def test_shipped_config_has_transcript_enabled():
+    assert get_settings().transcribe.enabled is True
 
 
 def test_enabled_transcribes_once_then_reads_the_cache(settings, monkeypatch):

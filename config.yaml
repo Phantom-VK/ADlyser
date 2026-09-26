@@ -19,7 +19,7 @@ llm:
     model: deepseek-flash   # normaliser + rerank; deepseek-v4-pro is the slower alternative
 
 transcribe:
-  enabled: false   # optional context only; nothing downstream may require it
+  enabled: true    # optional context only; nothing downstream may require it
   provider: groq   # groq = hosted whisper (GROQ_API_KEY in .env); local = faster-whisper
   model: whisper-large-v3
   language: bn
