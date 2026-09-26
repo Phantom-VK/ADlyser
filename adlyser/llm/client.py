@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -41,6 +42,17 @@ def image_part(jpeg: bytes, detail: str = "low") -> dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": url, "detail": detail}}
 
 
+def _count_images(messages: list[dict[str, Any]]) -> int:
+    """Count the image parts across chat messages."""
+    return sum(
+        1
+        for m in messages
+        if isinstance(m.get("content"), list)
+        for part in m["content"]
+        if part.get("type") == "image_url"
+    )
+
+
 def user_message(text: str, images: list[bytes] | None = None, detail: str = "low") -> dict[str, Any]:
     """Build a user message with text followed by images.
 
@@ -75,6 +87,7 @@ class LLMClient:
         """
         self.endpoint = endpoint
         self.cache = cache
+        self.stats: defaultdict[str, Counter[str]] = defaultdict(Counter)
         self._sem = asyncio.Semaphore(concurrency)
         self._client = AsyncOpenAI(
             base_url=endpoint.base_url, api_key=api_key or "missing", timeout=timeout_s
@@ -110,6 +123,13 @@ class LLMClient:
             raise LlmError(f"{prompt}: {type(exc).__name__}: {exc}") from exc
         ms = int((time.perf_counter() - start) * 1000)
         usage = resp.usage
+        self.stats[prompt].update(
+            requests=1,
+            ms=ms,
+            images=_count_images(messages),
+            in_tok=usage.prompt_tokens if usage else 0,
+            out_tok=usage.completion_tokens if usage else 0,
+        )
         result = ChatResult(
             message=resp.choices[0].message,
             ms=ms,
@@ -149,6 +169,7 @@ class LLMClient:
         if hit is not None:
             try:
                 out = model.model_validate(hit)
+                self.stats[prompt]["cached"] += 1
                 log.info(
                     "llm_call",
                     extra={
@@ -177,6 +198,7 @@ class LLMClient:
                 continue
             self.cache.set(prompt, key, out.model_dump(mode="json"))
             return out
+        self.stats[prompt]["fallbacks"] += 1
         log.error("llm_fallback", extra={"prompt": prompt})
         return fallback
 

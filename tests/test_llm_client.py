@@ -54,3 +54,12 @@ async def test_two_failures_return_fallback_and_are_not_cached(tmp_path, bad):
     client2, calls2 = make_client(tmp_path, [GOOD])
     assert (await client2.chat_json("p", MSGS, BoundaryVerdict, FALLBACK)).reason == "scene closed"
     assert len(calls2) == 1
+
+
+async def test_stats_count_cache_hits_and_fallbacks(tmp_path):
+    client, _ = make_client(tmp_path, [GOOD, "bad", "bad"])
+    await client.chat_json("p", MSGS, BoundaryVerdict, FALLBACK)
+    await client.chat_json("p", MSGS, BoundaryVerdict, FALLBACK)  # cache hit
+    await client.chat_json("q", MSGS, BoundaryVerdict, FALLBACK)  # two bad replies
+    assert client.stats["p"]["cached"] == 1
+    assert client.stats["q"]["fallbacks"] == 1
