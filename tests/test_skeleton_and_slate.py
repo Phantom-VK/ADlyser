@@ -6,7 +6,9 @@ from adlyser.emit.creatives import slate_command
 from adlyser.schemas import Candidate, Creative
 from adlyser.skeleton import pick_breaks, to_specs
 
-PACING = PacingConfig(max_breaks_per_hour=6, min_gap_s=300, ad_duration_s=30, max_ad_load_pct=12)
+PACING = PacingConfig(
+    max_breaks_per_hour=6, min_gap_s=300, ad_duration_s=30, max_ad_load_pct=12, min_break_score=0.5
+)
 
 
 def cand(t, silence):

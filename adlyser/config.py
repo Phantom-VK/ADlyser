@@ -84,6 +84,35 @@ class PacingConfig(BaseModel):
     min_gap_s: float
     ad_duration_s: float
     max_ad_load_pct: float
+    min_break_score: float
+
+
+class FramesConfig(BaseModel):
+    """How frames are pulled from the video for the vision model."""
+
+    width: int
+    jpeg_quality: int
+
+
+class StretchConfig(BaseModel):
+    """How many frames represent one stretch between candidates."""
+
+    frame_interval_s: float
+    min_frames: int
+    max_frames: int
+    tool_rounds: int
+
+
+class BoundaryConfig(BaseModel):
+    """Where the BoundaryJudge looks around a cut."""
+
+    frame_offsets_s: list[float]
+
+
+class ScenesConfig(BaseModel):
+    """Scene-building settings."""
+
+    min_confidence: float
 
 
 class CreativesConfig(BaseModel):
@@ -117,6 +146,10 @@ class Settings(BaseSettings):
     cuts: CutsConfig
     candidates: CandidateConfig
     pacing: PacingConfig
+    frames: FramesConfig
+    stretch: StretchConfig
+    boundary: BoundaryConfig
+    scenes: ScenesConfig
     creatives: CreativesConfig
     deepseek_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPSEEK_API_KEY")

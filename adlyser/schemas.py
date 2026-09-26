@@ -1,7 +1,7 @@
 """Pydantic schemas that cross boundaries (LLM outputs, API, debug JSON)."""
 
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,28 @@ class BoundaryVerdict(BaseModel):
     is_scene_change: bool
     break_score: float = Field(ge=0, le=1)
     reason: str
+
+
+class Stretch(BaseModel, frozen=True):
+    """The video between two consecutive candidate pauses (or the video edge)."""
+
+    index: int
+    start: float
+    end: float
+
+
+class Scene(BaseModel):
+    """Stretches merged across non-scene-change candidates. Tags are the union over its stretches."""
+
+    index: int
+    start: float
+    end: float
+    stretch_indices: list[int]
+    summary: str
+    dominant_activity: str
+    activity_tags: list[str]
+    safety_tags: list[SafetyTag]
+    unknown: bool
 
 
 class SpeechSeg(BaseModel, frozen=True):
@@ -88,6 +110,13 @@ class CandidateResult(BaseModel):
 
     candidates: list[Candidate]
     funnel: Funnel
+
+
+class BreakOption(BaseModel, frozen=True):
+    """A confirmed scene change the pacing solver may turn into a break."""
+
+    candidate: Candidate
+    break_score: float
 
 
 class Word(BaseModel, frozen=True):
@@ -137,3 +166,20 @@ class AdBreakSpec(BaseModel, frozen=True):
     break_id: str
     time_s: float
     creative: Creative
+
+
+class Analysis(BaseModel):
+    """Everything the AI pipeline decided about one video (Phase 2: up to the chosen breaks)."""
+
+    video: str
+    duration_s: float
+    funnel: Funnel
+    candidates: list[Candidate]
+    stretches: list[Stretch]
+    analyses: list[StretchAnalysis]
+    stretch_traces: list[list[dict[str, Any]]]
+    verdicts: list[BoundaryVerdict]
+    scenes: list[Scene]
+    breaks: list[BreakOption]
+    llm_stats: dict[str, dict[str, int]]
+    wall_s: float

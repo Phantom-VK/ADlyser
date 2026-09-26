@@ -54,6 +54,23 @@ pacing:
   min_gap_s: 300
   ad_duration_s: 30
   max_ad_load_pct: 12
+  min_break_score: 0.5   # a break below this is not warranted, whatever the caps allow
+
+frames:
+  width: 640
+  jpeg_quality: 5   # ffmpeg -q:v, lower is better
+
+stretch:
+  frame_interval_s: 30   # about one frame per this many seconds of a stretch
+  min_frames: 3
+  max_frames: 8
+  tool_rounds: 2   # look_closer rounds per stretch; 0 = single call
+
+boundary:
+  frame_offsets_s: [2.0, 0.5]   # frames this far before and after the cut
+
+scenes:
+  min_confidence: 0.5   # below this a stretch is "unknown" and blocks every brand
 
 creatives:
   duration_s: 10
