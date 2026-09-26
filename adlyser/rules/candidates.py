@@ -1,7 +1,7 @@
 """Candidate pauses: cut points that sit inside real silence. Pure functions, no I/O, no LLM."""
 
 from adlyser.config import CandidateConfig
-from adlyser.schemas import Candidate, CandidateResult, Cut, Funnel, SpeechSeg
+from adlyser.schemas import Candidate, CandidateResult, Cut, Funnel, SpeechSeg, Stretch, StretchAnalysis
 
 _EPS = 1e-9
 
@@ -58,6 +58,45 @@ def skip_window(duration: float, cfg: CandidateConfig) -> tuple[float, float]:
     )
 
 
+def title_bounds(
+    stretches: list[Stretch], analyses: list[StretchAnalysis], duration: float, cfg: CandidateConfig
+) -> tuple[float, float | None]:
+    """Where the opening titles end and the closing titles start, from the stretches marked ``is_titles``.
+
+    The intro ends where the last titles stretch that starts in the first ``titles_scan_fraction`` of the
+    video ends; the outro starts where the first titles stretch in the last such fraction starts. Neither
+    reaches further than ``titles_max_s`` into the video from its end. Titles in the middle are ignored.
+
+    :param stretches: consecutive stretches.
+    :param analyses: one analysis per stretch.
+    :param duration: video length in seconds.
+    :param cfg: candidate rules from config.
+    :return: ``(intro_end, outro_start)``: 0 and None when there are no titles.
+    """
+    scan = min(cfg.titles_scan_fraction * duration, cfg.titles_max_s)
+    titles = [s for s, a in zip(stretches, analyses, strict=True) if a.is_titles]
+    intro = [s.end for s in titles if s.start < scan]
+    outro = [s.start for s in titles if s.start >= duration - scan]
+    return (min(max(intro), cfg.titles_max_s) if intro else 0.0), (
+        max(min(outro), duration - cfg.titles_max_s) if outro else None
+    )
+
+
+def break_window(
+    duration: float, cfg: CandidateConfig, intro_end: float = 0.0, outro_start: float | None = None
+) -> tuple[float, float]:
+    """The earliest and latest time a break may go: the skip windows counted from the titles, not the edges.
+
+    :param duration: video length in seconds.
+    :param cfg: candidate rules from config.
+    :param intro_end: where the opening titles end (0 when there are none).
+    :param outro_start: where the closing titles start (None when there are none).
+    :return: ``(earliest, latest)`` in seconds.
+    """
+    skip_start, skip_end = skip_window(duration, cfg)
+    return intro_end + skip_start, (duration if outro_start is None else outro_start) - skip_end
+
+
 def _rank(cand: Candidate) -> tuple[float, int, float]:
     """Sort key: longer silence first, then black before hard, then earlier."""
     return (-cand.silence_s, 0 if cand.kind == "black" else 1, cand.t)
@@ -82,8 +121,8 @@ def find_candidates(
     silences = silences_from_speech(speech, duration)
     long_enough = [s for s in silences if s[1] - s[0] >= cfg.min_silence_s - _EPS]
     picked = [c for s in long_enough for c in _pick(s, cuts, cfg)]
-    skip_start, skip_end = skip_window(duration, cfg)
-    in_window = [c for c in picked if skip_start <= c.t <= duration - skip_end]
+    earliest, latest = break_window(duration, cfg)
+    in_window = [c for c in picked if earliest <= c.t <= latest]
 
     kept: list[Candidate] = []
     for cand in sorted(in_window, key=_rank):

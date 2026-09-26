@@ -4,8 +4,14 @@ from itertools import pairwise
 import pytest
 
 from adlyser.config import CandidateConfig
-from adlyser.rules.candidates import find_candidates, silences_from_speech, skip_window
-from adlyser.schemas import Cut, SpeechSeg
+from adlyser.rules.candidates import (
+    break_window,
+    find_candidates,
+    silences_from_speech,
+    skip_window,
+    title_bounds,
+)
+from adlyser.schemas import Cut, SpeechSeg, Stretch, StretchAnalysis
 
 CFG = CandidateConfig(
     min_silence_s=0.8,
@@ -18,6 +24,8 @@ CFG = CandidateConfig(
     max_candidates=60,
     allow_long_silence_without_cut=False,
     long_silence_s=2.0,
+    titles_scan_fraction=0.25,
+    titles_max_s=480,
 )
 DUR = 1000.0
 SHORT = CFG.model_copy(update={"skip_start_fraction": 0.15, "skip_end_fraction": 0.1})
@@ -247,3 +255,62 @@ def test_the_scaled_window_still_excludes_the_first_and_last_fractions():
     speech = [sp(0, 5), sp(8, 55), sp(59, 109), sp(113, 120)]
     result = find_candidates(speech, [hard(6.5), hard(57), hard(111)], 120.0, SHORT)
     assert times(result) == [57]  # 6.5 is inside the first 18 s, 111 inside the last 12 s
+
+
+# ---- intro-aware window ----------------------------------------------------
+
+
+def stretches(*edges, titles=()):
+    """Consecutive stretches between the edges, and analyses that mark the listed indices as titles."""
+    spans = [Stretch(index=i, start=a, end=b) for i, (a, b) in enumerate(pairwise(edges))]
+    notes = [
+        StretchAnalysis(
+            summary="s", dominant_activity="a", setting="x", mood="m", confidence=0.9, is_titles=i in titles
+        )
+        for i in range(len(spans))
+    ]
+    return spans, notes
+
+
+def test_without_titles_the_window_is_the_plain_skip_window():
+    spans, notes = stretches(0, 250, 500, 750, 1000)
+    intro_end, outro_start = title_bounds(spans, notes, DUR, SHORT)
+    assert (intro_end, outro_start) == (0.0, None)
+    assert break_window(DUR, SHORT, intro_end, outro_start) == (150.0, 900.0)
+    assert break_window(DUR, SHORT) == (150.0, 900.0)
+
+
+def test_a_titles_stretch_at_the_start_pushes_the_earliest_break():
+    spans, notes = stretches(0, 100, 200, 500, 1000, titles={0, 1})
+    intro_end, _ = title_bounds(spans, notes, DUR, SHORT)
+    assert intro_end == 200
+    assert break_window(DUR, SHORT, intro_end, None)[0] == 200 + 150
+
+
+def test_a_titles_stretch_at_the_end_pulls_the_latest_break_back():
+    spans, notes = stretches(0, 300, 600, 850, 1000, titles={3})
+    _, outro_start = title_bounds(spans, notes, DUR, SHORT)
+    assert outro_start == 850
+    assert break_window(DUR, SHORT, 0.0, outro_start)[1] == 850 - 100
+
+
+def test_titles_in_the_middle_of_the_episode_are_ignored():
+    spans, notes = stretches(0, 300, 600, 700, 1000, titles={1, 2})
+    assert title_bounds(spans, notes, DUR, SHORT) == (0.0, None)
+
+
+def test_the_intro_is_capped_and_the_scan_scales_with_the_video():
+    spans, notes = stretches(0, 900, 1000, titles={0})
+    assert title_bounds(spans, notes, 4000.0, SHORT)[0] == 480  # capped at titles_max_s
+    short = stretches(0, 30, 80, 400, titles={0, 1})
+    assert title_bounds(*short, 400.0, SHORT) == (80, None)  # scan = 25% of 400 = 100 s
+    assert (
+        title_bounds(*stretches(0, 150, 400, titles={1}), 400.0, SHORT)[0] == 0.0
+    )  # starts after the 100 s scan
+
+
+def test_the_shipped_titles_settings_are_a_fraction_and_a_cap():
+    from adlyser.config import get_settings
+
+    cfg = get_settings().candidates
+    assert 0 < cfg.titles_scan_fraction <= 0.5 and cfg.titles_max_s > 0

@@ -38,7 +38,7 @@ FOOD = Brand(id="food", name="Food", category="c", tagline="t", description="d",
              negative_contexts_raw=["death"])  # fmt: skip
 
 
-def report(plans, verdicts, cands, excluded=None):
+def report(plans, verdicts, cands, excluded=None, **extra):
     base = [scene(0), scene(1), scene(2)]
     swept = [scene(0), scene(1, {T.DEATH_GRIEF}), scene(2)]
     return build_debug(
@@ -47,7 +47,7 @@ def report(plans, verdicts, cands, excluded=None):
         analyses=[ANALYSIS] * 3, traces=[[], [], []], base_scenes=base, scenes=swept,
         sweeps={1: SweepRecord(safety_tags=[T.DEATH_GRIEF], unsure_tags=[], evidence="a funeral insert", ok=True, full_coverage=True, frames=9)},
         plans=plans, excluded_reasons=excluded or {}, brands=[FOOD], break_ids={100: "break-1"},
-        min_break_score=0.5, llm_stats={}, loops=1, wall_s=1.0,
+        min_break_score=0.5, llm_stats={}, loops=1, wall_s=1.0, **extra,
     )  # fmt: skip
 
 
@@ -139,3 +139,10 @@ def test_an_approved_break_names_its_brand_and_id():
 def test_the_report_records_the_score_threshold_so_the_ui_can_explain_zero_breaks():
     out = report([], [verdict(True, 0.3)], [cand(100)])
     assert out.min_break_score == 0.5 and out.candidates[0].status == "below_min_score"
+
+
+def test_the_report_records_where_the_intro_ends_and_the_outro_starts():
+    out = report([], [verdict()], [cand(100)])
+    assert (out.intro_end, out.outro_start) == (0.0, None)
+    again = report([], [verdict()], [cand(100)], intro_end=310.0, outro_start=2900.0)
+    assert (again.intro_end, again.outro_start) == (310.0, 2900.0)

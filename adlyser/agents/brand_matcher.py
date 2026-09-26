@@ -118,3 +118,44 @@ async def match_brand(
     return BrandChoice(
         kind="no_fit", brand_id=None, shortlist=kept, blocked=blocked, reason="no brand fits well"
     )
+
+
+def spread_brands(
+    choices: list[BrandChoice], used: dict[str, int], cfg: MatcherConfig
+) -> list[tuple[BrandChoice, str]]:
+    """Assign brands in break-time order so one brand does not run again and again in an episode.
+
+    A brand already used ``max_per_brand`` times is skipped for the runner-up (an unblocked brand of the
+    shortlist with fit >= ``min_fit`` that is still under the cap). With no such alternative the repeat
+    stays: a repeat beats a promo. Choices that name no brand pass through unchanged.
+
+    :param choices: the matcher's choices for breaks awaiting a brand, in break-time order.
+    :param used: brand id -> how many breaks already carry it.
+    :param cfg: matcher settings.
+    :return: ``(choice, note)`` per break; the note is empty unless the cap changed or allowed something.
+    """
+    counts = dict(used)
+    out: list[tuple[BrandChoice, str]] = []
+    for choice in choices:
+        note = ""
+        if choice.kind == "brand" and choice.brand_id is not None:
+            if counts.get(choice.brand_id, 0) >= cfg.max_per_brand:
+                top = next(e for e in choice.shortlist if e.brand_id == choice.brand_id)
+                rest = sorted(
+                    (
+                        e
+                        for e in choice.shortlist
+                        if e.brand_id != choice.brand_id
+                        and (e.fit or 0.0) >= cfg.min_fit
+                        and counts.get(e.brand_id, 0) < cfg.max_per_brand
+                    ),
+                    key=lambda e: -(e.fit or 0.0),
+                )
+                if rest:
+                    note = f"{top.name} already runs in this episode: runner-up {rest[0].name} (fit {rest[0].fit:.2f})"
+                    choice = choice.model_copy(update={"brand_id": rest[0].brand_id, "reason": "runner-up"})
+                else:
+                    note = "repeat allowed: no alternative"
+            counts[choice.brand_id] = counts.get(choice.brand_id, 0) + 1
+        out.append((choice, note))
+    return out

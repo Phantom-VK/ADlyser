@@ -8,6 +8,26 @@ from adlyser.schemas import Brand, Candidate, SafetyTag, Scene, SpeechSeg, Stret
 
 _TAXONOMY = ", ".join(t.value for t in SafetyTag)
 
+# One line per safety tag: what counts and what does not. The stretch analyst, the sweep and the catalogue
+# normaliser all read these, so a tag means the same thing everywhere.
+TAG_DEFINITIONS: dict[str, str] = {
+    "death_grief": "a death, a dead body, or people grieving a loss; NOT a memory, a photo or a passing mention",
+    "funeral_ritual": "a funeral, cremation, burial or mourning rite; NOT a wedding or a festive prayer",
+    "violence": "people hitting, fighting or hurting each other, or threatening to; NOT a raised voice or a heated talk",
+    "crime_weapons": "a crime being committed or a gun, knife or similar weapon in use or in view; NOT people only talking about a crime",
+    "accident_injury": "a crash, a fall, or a visibly injured or bleeding person; NOT a healthy person mentioning an old injury",
+    "medical_illness": "a hospital, sickbed, drip or treatment, or a visibly ill person; NOT a passing mention of a doctor",
+    "alcohol": "alcohol being drunk, poured or prominently shown; NOT a bottle of water or a shelf in the background",
+    "tobacco_drugs": "someone smoking or using tobacco or drugs; NOT a printed warning or a poster",
+    "sexual_content": "nudity, sexual activity, explicit kissing or foreplay; NOT family affection, hugging, feeding or couples sitting together",
+    "abuse_harassment": "one person abusing, bullying, stalking or harassing another; NOT an ordinary disagreement",
+    "religion_sensitive": "religious conflict, mockery of a faith or a sacred rite shown in a controversial way; NOT a family prayer or a temple visit",
+    "disaster": "a flood, fire, earthquake, riot or other mass emergency; NOT a candle or a cooking flame",
+    "hunger_poverty": "visible destitution: begging, starvation or people living on the street; NOT a modest home or a simple meal",
+    "strong_argument": "visible anger, shouting or confrontation between people; NOT animated talk",
+}
+_DEFINITIONS = "\n".join(f"  {tag} = {text}" for tag, text in TAG_DEFINITIONS.items())
+
 STRETCH_ANALYST = f"""You analyse one continuous stretch of a Bengali TV drama episode.
 You receive frames spread evenly across the stretch (in time order) and, when available,
 its transcript. Describe what happens in the WHOLE stretch, not just the last frame.
@@ -19,6 +39,11 @@ Rules:
 - safety_tags: include EVERY tag from this fixed list that applies to ANYTHING in the stretch,
   even briefly. Only use these exact values: {_TAXONOMY}.
   Sensitive material earlier in the stretch still counts even if the last frames look neutral.
+  A tag applies only when what you see fits its definition, including the NOT part:
+{_DEFINITIONS}
+- is_titles: true only if the stretch is mostly opening or closing titles, a credit montage, a
+  disclaimer or title card, or a "previously on" recap, and not story scenes. A stretch that mixes
+  titles with story is false unless the titles clearly dominate. Otherwise false.
 - confidence: 0 to 1. Use a low value if the frames are ambiguous, dark or you are guessing.
 - Reply with JSON only."""
 
@@ -49,7 +74,9 @@ into a fixed schema. Every brand in the input must appear exactly once in the ou
 - negative_contexts_raw: the input's own words about when the brand must NOT appear, split into
   short phrases. Copy them faithfully; never drop one.
 - negative_tags: map EVERY negative context to the tags of this fixed list that it implies, and use
-  only these exact values: {_TAXONOMY}. Map each phrase to the tags it directly names; do not add
+  only these exact values: {_TAXONOMY}. What each tag means:
+{_DEFINITIONS}
+  Map each phrase to the tags it directly names; do not add
   adjacent tags (e.g. "illness" -> medical_illness only; "mourning" -> death_grief, funeral_ritual,
   because mourning names both a death and its rites).
 - Reply with JSON only."""
@@ -70,7 +97,11 @@ values: {_TAXONOMY}.
 - safety_tags: tags that clearly apply to something visible in the scene, even briefly (a funeral or
   hospital insert of a few seconds still counts).
 - unsure_tags: tags that might apply but you cannot tell (dark, blurry, partial). Unsure tags are
-  treated as present, so list one only if a frame shows something that could really be it.
+  treated as present, so list one only if a frame shows something that could really be it. An unsure
+  tag needs a visible cue like any other: name what you can see. A cue that states nothing is visible
+  ("no explicit content", "tone unclear", "nothing shows anger") is not a cue, so leave that tag out.
+- A tag applies only when what you see fits its definition, including the NOT part:
+{_DEFINITIONS}
 - EVERY tag, in both lists, must be an object {{"tag": ..., "frames": [frame numbers], "cue": "what is visible"}}.
   A tag without frame numbers that show it is discarded.
 - Tag only what is visible in the scene itself. Boilerplate text alone is NOT a cue: disclaimer cards,
@@ -94,6 +125,13 @@ words, when it must NOT appear.
 - You may call the tools to look closer at frames or read the speech map before you decide.
 - Reply with JSON only."""
 
+
+# Added to a user message only when a transcript exists, so runs without one keep their cached answers.
+TRANSCRIPT_NOTE = (
+    "The transcript is a noisy auto transcript, words may be wrong; use only as a hint. It may add "
+    "evidence for a safety tag, but never remove or clear one, and never raise your confidence above "
+    "what the frames show."
+)
 
 FIX_JSON = (
     "Your previous reply was not valid JSON for the schema. Reply again with only the corrected JSON object."
@@ -145,9 +183,10 @@ def stretch_text(stretch: Stretch, times: list[float], transcript: str, with_sec
     """
     stamps = ", ".join(clock(t) for t in times)
     span = f" ({stretch.start:.0f}s to {stretch.end:.0f}s)" if with_seconds else ""
+    note = "" if transcript == "unavailable" else f"\n{TRANSCRIPT_NOTE}"
     return (
         f"Stretch {clock(stretch.start)} to {clock(stretch.end)}{span}. "
-        f"{len(times)} frames in time order, taken at {stamps}.\nTranscript: {transcript}"
+        f"{len(times)} frames in time order, taken at {stamps}.{note}\nTranscript: {transcript}"
     )
 
 
@@ -160,10 +199,11 @@ def boundary_text(cand: Candidate, before: str, after: str, transcript: str) -> 
     :param transcript: transcript around the cut, or ``unavailable``.
     :return: the text part of the user message.
     """
+    note = "" if transcript == "unavailable" else f"{TRANSCRIPT_NOTE}\n"
     return (
         f"Cut at {clock(cand.t)}. Frames: 2 before, then 2 after.\n"
         f"Silence around the cut: {cand.silence_s:.1f} s. Cut type: {cand.kind}.\n"
-        f"Before: {before}\nAfter: {after}\nTranscript: {transcript}"
+        f"Before: {before}\nAfter: {after}\n{note}Transcript: {transcript}"
     )
 
 

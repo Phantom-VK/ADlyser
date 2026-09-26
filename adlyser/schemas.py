@@ -35,6 +35,7 @@ class StretchAnalysis(BaseModel):
     mood: str
     safety_tags: list[SafetyTag] = Field(default_factory=list)
     confidence: float = Field(ge=0, le=1)
+    is_titles: bool = False  # opening/closing titles, credits, title or disclaimer cards, a recap
 
 
 class NormalisedBrand(BaseModel):
@@ -374,3 +375,5 @@ class DebugReport(BaseModel):
     loops: int
     wall_s: float
     min_break_score: float | None = None  # the threshold the candidate statuses were judged against
+    intro_end: float = 0.0  # where the opening titles end (0 = none found)
+    outro_start: float | None = None  # where the closing titles start (None = none found)

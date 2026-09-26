@@ -1,6 +1,7 @@
 import pytest
 
 from adlyser.config import get_settings
+from adlyser.errors import PerceptionError
 from adlyser.perception import measure as measure_mod
 from adlyser.perception import transcribe as transcribe_mod
 from adlyser.perception.transcribe import clip_timestamps
@@ -46,7 +47,8 @@ def test_enabled_transcribes_once_then_reads_the_cache(settings, monkeypatch):
         return [TranscriptSeg(start=1, end=2, text="hello")]
 
     monkeypatch.setattr(measure_mod, "_transcribe_subprocess", fake)
-    on = settings.model_copy(update={"transcribe": settings.transcribe.model_copy(update={"enabled": True})})
+    local = {"enabled": True, "provider": "local"}
+    on = settings.model_copy(update={"transcribe": settings.transcribe.model_copy(update=local)})
     p = perception([SpeechSeg(start=1, end=2)])
     first = measure_mod.measure_transcript(p, on)
     second = measure_mod.measure_transcript(p, on)
@@ -61,3 +63,52 @@ def test_clip_timestamps_merge_close_spans_and_keep_far_ones_apart():
 
 def test_clip_timestamps_of_no_speech_is_empty():
     assert clip_timestamps([], merge_gap_s=1.0) == []
+
+
+def groq_on(settings):
+    cfg = settings.transcribe.model_copy(update={"enabled": True, "provider": "groq"})
+    return settings.model_copy(update={"transcribe": cfg})
+
+
+def test_the_groq_provider_is_used_in_process_and_cached(settings, monkeypatch):
+    calls = []
+
+    def fake(wav, duration, cfg, speech, api_key, cache, wait_on_limit=False):
+        calls.append((duration, wait_on_limit))
+        return [TranscriptSeg(start=1, end=2, text="namaste")]
+
+    def boom(*_a, **_k):
+        raise AssertionError("the local whisper process must not start for the groq provider")
+
+    monkeypatch.setattr(measure_mod, "transcribe_with_groq", fake)
+    monkeypatch.setattr(measure_mod, "_transcribe_subprocess", boom)
+    p = perception([SpeechSeg(start=1, end=2)])
+    first = measure_mod.measure_transcript(p, groq_on(settings))
+    second = measure_mod.measure_transcript(p, groq_on(settings))
+    assert [t.text for t in first.transcript] == ["namaste"] == [t.text for t in second.transcript]
+    assert calls == [(600, False)]  # a live run never waits out a rate limit
+
+
+def test_precompute_can_ask_the_groq_provider_to_wait_out_a_rate_limit(settings, monkeypatch):
+    seen = []
+
+    def fake(wav, duration, cfg, speech, api_key, cache, wait_on_limit=False):
+        seen.append(wait_on_limit)
+        return []
+
+    monkeypatch.setattr(measure_mod, "transcribe_with_groq", fake)
+    measure_mod.measure_transcript(
+        perception([SpeechSeg(start=1, end=2)]), groq_on(settings), wait_on_limit=True
+    )
+    assert seen == [True]
+
+
+def test_a_rate_limited_live_run_raises_so_the_pipeline_carries_on_without_a_transcript(
+    settings, monkeypatch
+):
+    def limited(*_a, **_k):
+        raise transcribe_mod.RateLimited("rate limit", 30)
+
+    monkeypatch.setattr(measure_mod, "transcribe_with_groq", limited)
+    with pytest.raises(PerceptionError):
+        measure_mod.measure_transcript(perception([SpeechSeg(start=1, end=2)]), groq_on(settings))

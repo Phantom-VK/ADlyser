@@ -1,6 +1,7 @@
 """Graph node behaviour with the agents mocked (no API calls)."""
 
 import asyncio
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from adlyser.config import get_settings
 from adlyser.errors import PerceptionError
 from adlyser.graph import Pipeline, route_after_settle
 from adlyser.schemas import (
+    BoundaryVerdict,
     Brand,
     BrandChoice,
     BreakOption,
@@ -18,6 +20,8 @@ from adlyser.schemas import (
     SafetyTag,
     Scene,
     ShortlistEntry,
+    Stretch,
+    StretchAnalysis,
     SweepRecord,
 )
 
@@ -159,6 +163,31 @@ async def test_match_sets_the_status_from_the_choice_kind(monkeypatch):
         mock_match(monkeypatch, kind)
         out = await pipeline().match(state([plan(status="needs_brand", kind=None)]))
         assert out["plans"][0].status == status
+
+
+async def test_the_match_node_spreads_brands_over_the_episode_in_break_time_order(monkeypatch):
+    rows = {
+        400: BrandChoice(kind="brand", brand_id="food", blocked=[], reason="x", shortlist=[
+            ShortlistEntry(brand_id="food", name="Food", similarity=0.5, fit=0.9, reason="r"),
+            ShortlistEntry(brand_id="rides", name="Rides", similarity=0.4, fit=0.6, reason="r")]),
+    }  # fmt: skip
+
+    async def fake(embedder, client, brands, before, after, excluded, cfg):
+        return rows[400]
+
+    monkeypatch.setattr(graph, "match_brand", fake)
+    later, earlier = plan(900, status="needs_brand", kind=None), plan(400, status="needs_brand", kind=None)
+    out = await pipeline().match(state([later, earlier]))
+    by_t = {p.candidate.t: p for p in out["plans"]}
+    assert by_t[400].choice.brand_id == "food" and by_t[900].choice.brand_id == "rides"
+    assert "runner-up" in by_t[900].history[-1] or any("runner-up" in h for h in by_t[900].history)
+
+
+async def test_a_brand_already_approved_elsewhere_counts_toward_the_cap(monkeypatch):
+    mock_match(monkeypatch, "brand")
+    approved = plan(100, status="approved")
+    out = await pipeline().match(state([approved, plan(900, status="needs_brand", kind=None)]))
+    assert [h for h in out["plans"][1].history if "repeat allowed: no alternative" in h]
 
 
 # ---- review node -----------------------------------------------------------
@@ -445,3 +474,60 @@ async def test_the_sweep_node_reports_its_scenes(monkeypatch):
     mock_sweep(monkeypatch, record())
     await pipe.sweep(state([plan(status="needs_brand", kind=None)]))
     assert [e["text"] for e in seen] == ["Sweeping scene 1 of 2", "Sweeping scene 2 of 2"]
+
+
+# ---- intro-aware window -----------------------------------------------------
+
+
+def analysis(titles=False):
+    return StretchAnalysis(
+        summary="s", dominant_activity="a", setting="x", mood="m", confidence=0.9, is_titles=titles
+    )
+
+
+async def test_the_analyse_node_finds_where_the_intro_ends_from_the_titles_stretches(monkeypatch):
+    marks = {0: True, 1: True, 2: False, 3: False}
+    edges = [0, 100, 200, 600, 2000]
+
+    async def fake(client, video, frames_dir, stretch, transcript, duration, settings):
+        return analysis(marks[stretch.index]), []
+
+    monkeypatch.setattr(graph, "analyse_stretch", fake)
+    spans = [Stretch(index=i, start=a, end=b) for i, (a, b) in enumerate(pairwise(edges))]
+    st = {"perception": SimpleNamespace(transcript=[], duration_s=2000.0), "stretches": spans}
+    out = await pipeline().analyse(st)
+    assert out["intro_end"] == 200 and out["outro_start"] is None
+
+
+async def test_no_titles_means_no_intro_and_no_outro(monkeypatch):
+    async def fake(client, video, frames_dir, stretch, transcript, duration, settings):
+        return analysis(False), []
+
+    monkeypatch.setattr(graph, "analyse_stretch", fake)
+    spans = [Stretch(index=i, start=i * 500, end=(i + 1) * 500) for i in range(4)]
+    out = await pipeline().analyse(
+        {"perception": SimpleNamespace(transcript=[], duration_s=2000.0), "stretches": spans}
+    )
+    assert out["intro_end"] == 0.0 and out["outro_start"] is None
+
+
+async def test_candidates_inside_the_titles_window_are_not_judged(monkeypatch):
+    judged = []
+
+    async def fake(client, video, frames_dir, c, before, after, transcript, duration, settings):
+        judged.append(c.t)
+        return BoundaryVerdict(is_scene_change=True, break_score=0.9, reason="r")
+
+    monkeypatch.setattr(graph, "judge_boundary", fake)
+    st = {
+        "perception": SimpleNamespace(transcript=[], duration_s=3600.0),
+        "analyses": [analysis()] * 4,
+        "found": SimpleNamespace(candidates=[cand(400), cand(900), cand(3500)]),
+        "intro_end": 300.0,
+        "outro_start": 3400.0,
+    }
+    out = await pipeline().boundaries(st)
+    v = out["verdicts"]
+    assert judged == [900]  # earliest = 300 + 180 = 480, latest = 3400 - 360 = 3040
+    assert [x.is_scene_change for x in v] == [False, True, False]
+    assert "opening titles" in v[0].reason and "closing titles" in v[2].reason

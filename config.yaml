@@ -20,11 +20,23 @@ llm:
 
 transcribe:
   enabled: false   # optional context only; nothing downstream may require it
+  provider: groq   # groq = hosted whisper (GROQ_API_KEY in .env); local = faster-whisper
+  model: whisper-large-v3
+  language: bn
+  chunk_s: 600
+  chunk_min_s: 30
+  max_chunk_mb: 24
+  max_no_speech_prob: 0.5
+  min_overlap_s: 0.2
+  request_timeout_s: 120
+  retry_attempts: 3
+  retry_max_wait_s: 3900
+  retry_default_wait_s: 60
+  # local provider only
   clip_merge_gap_s: 1.0
   model_size: small
   device: cpu
   compute_type: int8
-  language: bn
   beam_size: 1
 
 vad:
@@ -51,6 +63,8 @@ candidates:
   max_candidates: 60
   allow_long_silence_without_cut: false
   long_silence_s: 2.0
+  titles_scan_fraction: 0.25   # opening/closing titles are looked for in the first/last quarter ...
+  titles_max_s: 480            # ... and never more than 8 minutes in
 
 pacing:
   max_breaks_per_hour: 6
@@ -95,6 +109,7 @@ matcher:
   shortlist_k: 5   # embedding shortlist size
   top_k: 3         # kept after the rerank
   min_fit: 0.4     # best eligible fit below this: no brand here, pacing tries the next-best break
+  max_per_brand: 1   # a brand already used in the episode is skipped if another unblocked brand has fit >= min_fit
 
 reviewer:
   sweep_interval_s: 10   # one sweep frame per this many seconds of the scene

@@ -240,6 +240,8 @@ export function Watch({ name, initialT, onSections, onNeedsAnalysis }: Props) {
               <h2>Decision Trace</h2>
               <p className="muted tabular">
                 {report.funnel.silences} silences → {report.funnel.with_cut} with a cut → {report.candidates.length} candidates → {placed.length} placed
+                {report.intro_end ? ` · intro ends ${clock(report.intro_end)}` : ""}
+                {report.outro_start != null ? ` · outro starts ${clock(report.outro_start)}` : ""}
               </p>
             </header>
             <Timeline
