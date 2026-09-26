@@ -22,6 +22,20 @@ transcribe:
   device: cpu
   compute_type: int8
   language: bn
+  beam_size: 1
+
+vad:
+  threshold: 0.5
+  min_speech_ms: 100
+  min_silence_ms: 100
+  speech_pad_ms: 100
+
+cuts:
+  adaptive_threshold: 3.0
+  min_scene_len_frames: 8
+  black_min_duration_s: 0.1
+  black_pixel_threshold: 0.1
+  black_scale_width: 320
 
 candidates:
   min_silence_s: 0.8

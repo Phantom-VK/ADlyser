@@ -55,3 +55,19 @@ class DiskCache:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(value, ensure_ascii=False))
         tmp.replace(path)
+
+
+def file_fingerprint(path: Path) -> str:
+    """Cheap content fingerprint of a big file: size plus three 1 MiB samples.
+
+    :param path: the file to fingerprint.
+    :return: a hex sha256 digest.
+    """
+    size = path.stat().st_size
+    sample = 1 << 20
+    h = hashlib.sha256(str(size).encode())
+    with path.open("rb") as f:
+        for offset in (0, max(0, size // 2 - sample // 2), max(0, size - sample)):
+            f.seek(offset)
+            h.update(f.read(sample))
+    return h.hexdigest()
