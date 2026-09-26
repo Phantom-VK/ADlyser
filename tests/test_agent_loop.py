@@ -25,7 +25,7 @@ def wants(name, args='{"n": 2}', call_id="c1"):
 def make(tmp_path, replies):
     """A real client whose chat() returns scripted results and records (messages, tools) per request."""
     ep = Endpoint(provider="deepseek", base_url="http://unused", model="m")
-    client = LLMClient(ep, "k", DiskCache(tmp_path), concurrency=1, timeout_s=1)
+    client = LLMClient(ep, "k", DiskCache(tmp_path), concurrency=1, timeout_s=1, temperature=0.0)
     seen = []
 
     async def fake_chat(prompt, messages, **kwargs):

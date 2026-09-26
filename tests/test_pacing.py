@@ -6,7 +6,12 @@ from adlyser.rules.pacing import can_add, max_breaks, select_breaks
 from adlyser.schemas import BreakOption, Candidate
 
 CFG = PacingConfig(
-    max_breaks_per_hour=6, min_gap_s=300, ad_duration_s=30, max_ad_load_pct=12, min_break_score=0.5
+    max_breaks_per_hour=6,
+    min_gap_s=300,
+    ad_duration_s=30,
+    max_ad_load_pct=12,
+    min_break_score=0.5,
+    min_duration_for_break_s=90,
 )
 
 
@@ -98,3 +103,37 @@ def test_can_add_respects_the_gap_and_the_cap():
     assert can_add([400], 800, 3600, CFG)
     assert can_add([400, 800], 1200, 1800, CFG)  # 30 min allows 3
     assert not can_add([400, 800, 1200], 1600, 1800, CFG)
+
+
+# ---- short videos ---------------------------------------------------------------------------------
+
+
+def test_a_video_at_least_min_duration_long_may_have_one_break_even_when_the_caps_round_to_zero():
+    assert max_breaks(120, CFG) == 1  # the rate and the load cap both give 0
+    assert max_breaks(89, CFG) == 0
+
+
+def test_a_120_second_video_with_one_good_candidate_gets_one_break():
+    assert times(select_breaks([opt(60, 0.8)], 120, CFG)) == [60]
+
+
+def test_a_short_video_still_gets_only_one_break():
+    assert times(select_breaks([opt(40, 0.7), opt(80, 0.9)], 120, cfg(min_gap_s=10))) == [80]
+
+
+# ---- pinned breaks --------------------------------------------------------------------------------
+
+
+def test_pinned_breaks_are_always_kept_and_count_against_the_cap():
+    options = [opt(500, 0.6), opt(1000, 0.9), opt(1500, 0.95)]
+    chosen = select_breaks(options, 1800, cfg(max_breaks_per_hour=4), pinned=[opt(500, 0.6)])  # cap 2
+    assert times(chosen) == [500, 1500]
+
+
+def test_pinned_breaks_keep_their_gap_against_new_ones():
+    chosen = select_breaks([opt(600, 0.99), opt(1200, 0.5)], 3600, CFG, pinned=[opt(500, 0.6)])
+    assert times(chosen) == [500, 1200]  # 600 is 100 s from the pinned break, min gap is 300
+
+
+def test_a_pinned_break_below_the_score_floor_is_still_kept():
+    assert times(select_breaks([], 3600, CFG, pinned=[opt(500, 0.1)])) == [500]

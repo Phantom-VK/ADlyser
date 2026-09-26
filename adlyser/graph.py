@@ -22,13 +22,14 @@ from adlyser.agents.reviewer import review_break, sweep_scene
 from adlyser.agents.stretch_analyst import analyse_stretch
 from adlyser.cache import DiskCache, file_fingerprint
 from adlyser.config import Settings
-from adlyser.emit.creatives import make_slate
+from adlyser.emit.creatives import make_slate, slate_name
 from adlyser.emit.debug import build_debug
 from adlyser.emit.vmap import build_vmap
+from adlyser.errors import PerceptionError
 from adlyser.llm.client import make_clients
 from adlyser.llm.embed import Embedder
 from adlyser.log import get_logger
-from adlyser.perception.measure import measure_signals
+from adlyser.perception.measure import measure_signals, measure_transcript
 from adlyser.rules.candidates import find_candidates
 from adlyser.rules.pacing import can_add, select_breaks
 from adlyser.rules.safety import apply_sweep, blocking_scenes, blocking_tags
@@ -51,6 +52,7 @@ from adlyser.schemas import (
 
 log = get_logger(__name__)
 RECURSION_LIMIT = 60
+PINNED = ("approved", "promo", "retry_brand")  # plans a re-pace must keep
 
 
 class State(TypedDict, total=False):
@@ -125,11 +127,15 @@ class Pipeline:
         return {"brands": await normalise_catalogue(self.text, raw)}
 
     async def measure(self, state: State) -> State:
-        """Measure speech and cuts, then find candidate pauses and the stretches between them."""
+        """Measure speech and cuts, find candidate pauses and the stretches, then add the optional transcript."""
         perception = await asyncio.to_thread(measure_signals, self.video, self.settings)
         found = find_candidates(
             perception.speech, perception.cuts, perception.duration_s, self.settings.candidates
         )
+        try:  # candidates never wait on the transcript, and nothing downstream requires it
+            perception = await asyncio.to_thread(measure_transcript, perception, self.settings)
+        except PerceptionError as exc:
+            log.error("transcript_failed", extra={"error": str(exc)[:200]})
         return {
             "perception": perception,
             "found": found,
@@ -181,11 +187,20 @@ class Pipeline:
                 "sweeps": {}, "loops": 0, "repace": False}  # fmt: skip
 
     async def pace(self, state: State) -> State:
-        """PacingSolver: choose breaks among the confirmed changes the reviewer has not excluded."""
+        """PacingSolver: choose breaks among the confirmed changes the reviewer has not excluded.
+
+        Breaks already approved (or promo, or being re-matched) are pinned: they stay, count against the caps
+        and keep their gap. Every plan that is not chosen again stays in the list, whatever its status.
+        """
         excluded = set(state["excluded"])
         options = [o for o in state["options"] if o.candidate.t not in excluded]
-        chosen = select_breaks(options, state["perception"].duration_s, self.settings.pacing)
         old = {p.candidate.t: p for p in state["plans"]}
+        pinned = [
+            BreakOption(candidate=p.candidate, break_score=p.break_score)
+            for p in state["plans"]
+            if p.status in PINNED
+        ]
+        chosen = select_breaks(options, state["perception"].duration_s, self.settings.pacing, pinned)
         plans: list[BreakPlan] = []
         for o in chosen:
             t = o.candidate.t
@@ -196,11 +211,7 @@ class Pipeline:
             plans.append(BreakPlan(candidate=o.candidate, break_score=o.break_score, before=before, after=after,
                                    status="needs_brand"))  # fmt: skip
         chosen_times = {p.candidate.t for p in plans}
-        history = [
-            p
-            for p in state["plans"]
-            if p.status in ("dropped", "blocked") and p.candidate.t not in chosen_times
-        ]
+        history = [p for p in state["plans"] if p.candidate.t not in chosen_times]
         return {"plans": [*plans, *history], "repace": False}
 
     async def sweep(self, state: State) -> State:
@@ -328,7 +339,8 @@ class Pipeline:
                 "loops": state["loops"] + 1 if repace or retry_brand else state["loops"]}  # fmt: skip
 
     async def finalize(self, state: State) -> State:
-        """Turn breaks that are still blocked into promo slots where the pacing rules leave room, else drop them."""
+        """Settle the breaks that are still blocked: no fit becomes a promo where pacing has room; a break where
+        every brand is blocked (or a scene is unknown) is dropped, never papered over with a promo."""
         pacing, duration = self.settings.pacing, state["perception"].duration_s
         plans = list(state["plans"])
         placed = [p.candidate.t for p in plans if p.status in ("approved", "promo")]
@@ -337,14 +349,19 @@ class Pipeline:
         )
         for i in blocked:
             p = plans[i]
-            if can_add(placed, p.candidate.t, duration, pacing):
+            no_fit = p.choice is not None and p.choice.kind == "no_fit"
+            if no_fit and can_add(placed, p.candidate.t, duration, pacing):
                 placed.append(p.candidate.t)
-                note = "no allowed brand and no better break point: promo slot"
+                note = "no brand fits well and no better break point: promo slot"
                 plans[i] = p.model_copy(
                     update={"status": "promo", "history": [*p.history, note], "reason": note}
                 )
             else:
-                note = "no allowed brand and no room for a promo under the pacing rules: dropped"
+                note = (
+                    "no room for a promo under the pacing rules: dropped"
+                    if no_fit
+                    else "every brand is blocked or the scene is unknown: break dropped"
+                )
                 plans[i] = p.model_copy(
                     update={"status": "dropped", "history": [*p.history, note], "reason": note}
                 )
@@ -360,7 +377,8 @@ class Pipeline:
         creatives_dir = st.data_dir / "creatives"
 
         async def creative(ad_id: str, title: str, subtitle: str) -> Creative:
-            path = creatives_dir / f"{ad_id}.mp4"
+            supplied = creatives_dir / f"{ad_id}.mp4"  # a clip dropped in by hand wins over the slate
+            path = supplied if supplied.exists() else creatives_dir / slate_name(ad_id, title, subtitle)
             if not path.exists():
                 await asyncio.to_thread(make_slate, title, subtitle, path, st.creatives)
             return Creative(ad_id=ad_id, title=title, duration_s=st.creatives.duration_s,

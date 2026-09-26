@@ -5,6 +5,7 @@ data_dir: data
 cache_dir: data/cache
 
 llm:
+  temperature: 0   # every call; the disk cache stays valid only if answers are stable
   concurrency: 8
   timeout_s: 120
   vision:
@@ -27,7 +28,7 @@ transcribe:
   beam_size: 1
 
 vad:
-  threshold: 0.5
+  threshold: 0.35   # 0.5 gave 19 candidates on feluda; 0.35 gives 19 too and detects more speech
   min_speech_ms: 100
   min_silence_ms: 100
   speech_pad_ms: 100
@@ -44,6 +45,8 @@ candidates:
   speech_guard_s: 0.4
   skip_start_s: 180
   skip_end_s: 120
+  skip_start_fraction: 0.15   # short videos: skip min(skip_start_s, fraction x duration)
+  skip_end_fraction: 0.1
   min_spacing_s: 20
   max_candidates: 60
   allow_long_silence_without_cut: false
@@ -54,6 +57,7 @@ pacing:
   min_gap_s: 300
   ad_duration_s: 30
   max_ad_load_pct: 12
+  min_duration_for_break_s: 90   # from this length up, at least one break is allowed whatever the caps round to
   min_break_score: 0.5   # a break below this is not warranted, whatever the caps allow
 
 frames:

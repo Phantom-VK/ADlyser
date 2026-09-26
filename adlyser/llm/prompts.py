@@ -94,6 +94,11 @@ words, when it must NOT appear.
 - Reply with JSON only."""
 
 
+FIX_JSON = (
+    "Your previous reply was not valid JSON for the schema. Reply again with only the corrected JSON object."
+)
+
+
 def with_schema(system: str, model: type[BaseModel]) -> str:
     """Append the JSON schema of the expected output to a system prompt.
 

@@ -1,11 +1,25 @@
 """Ad creatives: 10 s title-card slates made with ffmpeg (no real ad assets needed)."""
 
+import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
 
+from adlyser.cache import unique_tmp
 from adlyser.config import CreativesConfig
 from adlyser.errors import EmitError
+
+
+def slate_name(ad_id: str, title: str, subtitle: str) -> str:
+    """File name of a generated slate: the ad id plus a hash of its text, so changed text is a new file.
+
+    :param ad_id: the brand id (or ``promo``).
+    :param title: the big line.
+    :param subtitle: the small line.
+    :return: ``<ad_id>-<hash>.mp4``.
+    """
+    digest = hashlib.sha256(f"{title}\0{subtitle}".encode()).hexdigest()[:10]
+    return f"{ad_id}-{digest}.mp4"
 
 
 def slate_command(title_file: Path, subtitle_file: Path, out: Path, cfg: CreativesConfig) -> list[str]:
@@ -43,7 +57,7 @@ def make_slate(title: str, subtitle: str, out: Path, cfg: CreativesConfig) -> Pa
     :raises EmitError: if ffmpeg fails.
     """
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp_out = out.with_name(out.name + ".tmp")
+    tmp_out = unique_tmp(out)
     with tempfile.TemporaryDirectory() as tmp:
         title_file, subtitle_file = Path(tmp) / "title.txt", Path(tmp) / "subtitle.txt"
         title_file.write_text(title, encoding="utf-8")

@@ -27,6 +27,7 @@ class Endpoint(BaseModel):
 class LlmConfig(BaseModel):
     """LLM endpoints and call limits."""
 
+    temperature: float
     concurrency: int = 8
     timeout_s: float = 120
     vision: Endpoint
@@ -71,6 +72,8 @@ class CandidateConfig(BaseModel):
     speech_guard_s: float
     skip_start_s: float
     skip_end_s: float
+    skip_start_fraction: float
+    skip_end_fraction: float
     min_spacing_s: float
     max_candidates: int
     allow_long_silence_without_cut: bool
@@ -84,6 +87,7 @@ class PacingConfig(BaseModel):
     min_gap_s: float
     ad_duration_s: float
     max_ad_load_pct: float
+    min_duration_for_break_s: float
     min_break_score: float
 
 

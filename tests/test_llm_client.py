@@ -15,16 +15,18 @@ GOOD = '{"is_scene_change": true, "break_score": 0.7, "reason": "scene closed"}'
 def make_client(tmp_path, replies):
     """Client whose chat() returns scripted replies (a str, or an Exception to raise)."""
     ep = Endpoint(provider="deepseek", base_url="http://unused", model="m")
-    client = LLMClient(ep, "k", DiskCache(tmp_path), concurrency=1, timeout_s=1)
+    client = LLMClient(ep, "k", DiskCache(tmp_path), concurrency=1, timeout_s=1, temperature=0.0)
     calls = []
 
     async def fake_chat(prompt, messages, **kwargs):
         calls.append(prompt)
+        client.sent.append(messages)
         reply = replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
         return ChatResult(SimpleNamespace(content=reply), 1, 0, 0)
 
+    client.sent = []
     client.chat = fake_chat
     return client, calls
 
@@ -63,3 +65,40 @@ async def test_stats_count_cache_hits_and_fallbacks(tmp_path):
     await client.chat_json("q", MSGS, BoundaryVerdict, FALLBACK)  # two bad replies
     assert client.stats["p"]["cached"] == 1
     assert client.stats["q"]["fallbacks"] == 1
+
+
+async def test_the_retry_after_bad_json_carries_a_fix_your_json_nudge(tmp_path):
+    client, _ = make_client(tmp_path, ["not json", GOOD])
+    await client.chat_json("p", MSGS, BoundaryVerdict, FALLBACK)
+    first, second = client.sent
+    assert first == MSGS
+    assert second[: len(MSGS)] == MSGS and len(second) == len(MSGS) + 2
+    assert second[-2] == {"role": "assistant", "content": "not json"}
+    assert "JSON" in second[-1]["content"] and second[-1]["role"] == "user"
+
+
+async def test_a_failed_call_is_retried_without_a_nudge(tmp_path):
+    client, _ = make_client(tmp_path, [LlmError("boom"), GOOD])
+    await client.chat_json("p", MSGS, BoundaryVerdict, FALLBACK)
+    assert client.sent[1] == MSGS
+
+
+async def test_every_request_sends_the_configured_temperature(tmp_path):
+    ep = Endpoint(provider="deepseek", base_url="http://unused", model="m")
+    client = LLMClient(ep, "k", DiskCache(tmp_path), concurrency=1, timeout_s=1, temperature=0.25)
+    sent = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        message = SimpleNamespace(content=GOOD)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    await client.chat("p", MSGS)
+    assert sent["temperature"] == 0.25
+
+
+def test_the_shipped_config_uses_temperature_zero():
+    from adlyser.config import get_settings
+
+    assert get_settings().llm.temperature == 0

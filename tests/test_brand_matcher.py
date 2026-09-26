@@ -161,6 +161,7 @@ async def test_a_poor_fit_gives_no_brand_and_is_not_a_block():
     assert out.brand_id is None and out.kind == "no_fit" and out.reason.startswith("no brand fits")
 
 
-async def test_rerank_failure_falls_back_to_embedding_order():
+async def test_a_failed_rerank_is_no_fit_and_cosine_similarity_is_never_used_as_fit():
     out = await match_brand(KeywordEmbedder(), FakeText(None), ALL, scene("travel"), scene("x"), set(), CFG)
-    assert out.brand_id == "rides" and out.shortlist[0].reason == "embedding similarity"
+    assert out.brand_id is None and out.kind == "no_fit" and "rerank" in out.reason
+    assert out.shortlist and all(e.fit is None for e in out.shortlist)  # the trace still shows the shortlist

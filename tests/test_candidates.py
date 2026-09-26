@@ -4,7 +4,7 @@ from itertools import pairwise
 import pytest
 
 from adlyser.config import CandidateConfig
-from adlyser.rules.candidates import find_candidates, silences_from_speech
+from adlyser.rules.candidates import find_candidates, silences_from_speech, skip_window
 from adlyser.schemas import Cut, SpeechSeg
 
 CFG = CandidateConfig(
@@ -12,12 +12,15 @@ CFG = CandidateConfig(
     speech_guard_s=0.4,
     skip_start_s=180,
     skip_end_s=120,
+    skip_start_fraction=1.0,  # the seconds apply as configured; SHORT scales them for short videos
+    skip_end_fraction=1.0,
     min_spacing_s=20,
     max_candidates=60,
     allow_long_silence_without_cut=False,
     long_silence_s=2.0,
 )
 DUR = 1000.0
+SHORT = CFG.model_copy(update={"skip_start_fraction": 0.15, "skip_end_fraction": 0.1})
 
 
 def cfg(**kw):
@@ -225,3 +228,22 @@ def test_property_no_candidate_is_within_guard_of_speech(seed):
             assert s.end <= c.t - g + 1e-9 or s.start >= c.t + g - 1e-9
     ts = times(r)
     assert all(b - a >= CFG.min_spacing_s for a, b in pairwise(ts))
+
+
+# ---- skip window scales down for short videos ---------------------------------------------------
+
+
+def test_skip_window_is_the_configured_seconds_for_a_long_video_and_a_fraction_for_a_short_one():
+    assert skip_window(3600, SHORT) == (180, 120)
+    assert skip_window(120, SHORT) == (pytest.approx(18), pytest.approx(12))
+
+
+def test_a_two_minute_video_can_have_a_candidate_inside_its_scaled_window():
+    result = find_candidates([sp(0, 58), sp(63, 120)], [hard(60.5)], 120.0, SHORT)
+    assert times(result) == [60.5]
+
+
+def test_the_scaled_window_still_excludes_the_first_and_last_fractions():
+    speech = [sp(0, 5), sp(8, 55), sp(59, 109), sp(113, 120)]
+    result = find_candidates(speech, [hard(6.5), hard(57), hard(111)], 120.0, SHORT)
+    assert times(result) == [57]  # 6.5 is inside the first 18 s, 111 inside the last 12 s

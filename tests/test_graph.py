@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from adlyser import graph
 from adlyser.config import get_settings
+from adlyser.errors import PerceptionError
 from adlyser.graph import Pipeline, route_after_settle
 from adlyser.schemas import (
     Brand,
@@ -246,19 +247,24 @@ async def test_nothing_to_retry_goes_to_finalize():
 # ---- finalize --------------------------------------------------------------
 
 
-async def test_a_blocked_break_falls_back_to_a_promo_when_pacing_has_room():
-    out = await pipeline().finalize(state([plan(500, "blocked", "blocked")]))
+async def test_a_no_fit_break_falls_back_to_a_promo_when_pacing_has_room():
+    out = await pipeline().finalize(state([plan(500, "blocked", "no_fit")]))
     assert out["plans"][0].status == "promo"
 
 
-async def test_a_blocked_break_is_dropped_when_it_would_break_the_pacing_rules():
-    plans = [plan(500, "approved"), plan(600, "blocked", "blocked")]  # 100 s apart, min gap is 300
+async def test_a_break_where_every_brand_is_blocked_or_the_scene_is_unknown_is_dropped_not_a_promo():
+    out = await pipeline().finalize(state([plan(500, "blocked", "blocked")]))
+    assert out["plans"][0].status == "dropped" and "dropped" in out["plans"][0].reason
+
+
+async def test_a_no_fit_break_is_dropped_when_it_would_break_the_pacing_rules():
+    plans = [plan(500, "approved"), plan(600, "blocked", "no_fit")]  # 100 s apart, min gap is 300
     out = await pipeline().finalize(state(plans))
     assert [p.status for p in out["plans"]] == ["approved", "dropped"]
 
 
-async def test_blocked_breaks_compete_for_room_by_score():
-    plans = [plan(500, "blocked", "blocked", score=0.6), plan(600, "blocked", "blocked", score=0.9)]
+async def test_no_fit_breaks_compete_for_room_by_score():
+    plans = [plan(500, "blocked", "no_fit", score=0.6), plan(600, "blocked", "no_fit", score=0.9)]
     out = await pipeline().finalize(state(plans))
     assert [p.status for p in out["plans"]] == ["dropped", "promo"]
 
@@ -282,6 +288,76 @@ async def test_pace_picks_the_next_best_option_once_a_break_point_is_excluded():
         1,
         2,
     )
+
+
+async def test_re_pacing_pins_approved_breaks_and_keeps_every_plan_in_the_history():
+    options = [
+        BreakOption(candidate=cand(t), break_score=s) for t, s in [(500, 0.6), (1000, 0.9), (1500, 0.95)]
+    ]
+    plans = [plan(500, "approved"), plan(1000, "retry_candidate")]
+    base = state(plans, scenes=[scene(0), scene(1), scene(2), scene(3)], excluded=[1000])
+    base["options"], base["perception"] = options, SimpleNamespace(speech=[], duration_s=1800.0)
+    settled = await pipeline().settle(base)
+    base.update(settled)
+    out = await pipeline().pace(base)
+    by_t = {p.candidate.t: p.status for p in out["plans"]}
+    assert by_t[500] == "approved" and by_t[1500] == "needs_brand"  # cap is 3: 500 kept, 1500 added
+    assert by_t[1000] == "dropped"  # the excluded break is still in the list
+
+
+async def test_re_pacing_keeps_an_approved_break_the_solver_would_otherwise_swap_out():
+    options = [BreakOption(candidate=cand(t), break_score=s) for t, s in [(500, 0.55), (700, 0.99)]]
+    base = state([plan(500, "approved")], scenes=[scene(0), scene(1), scene(2)])
+    base["options"] = options
+    base["perception"] = SimpleNamespace(speech=[], duration_s=1800.0)
+    out = await pipeline().pace(base)  # 700 is 200 s from 500, under the 300 s gap
+    assert [(p.candidate.t, p.status) for p in out["plans"]] == [(500, "approved")]
+
+
+async def test_every_status_survives_a_re_pace():
+    plans = [
+        plan(500, "approved"),
+        plan(1000, "promo"),
+        plan(2000, "dropped"),
+        plan(2500, "blocked", "no_fit"),
+    ]
+    base = state(plans, scenes=[scene(0), scene(1), scene(2), scene(3)])
+    base["options"], base["perception"] = [], SimpleNamespace(speech=[], duration_s=3600.0)
+    out = await pipeline().pace(base)
+    assert sorted((p.candidate.t, p.status) for p in out["plans"]) == [
+        (500, "approved"), (1000, "promo"), (2000, "dropped"), (2500, "blocked"),
+    ]  # fmt: skip
+
+
+# ---- measure node ----------------------------------------------------------------------------------
+
+
+def measure_pipeline(monkeypatch, transcribe):
+    perception = SimpleNamespace(speech=[], cuts=[], duration_s=600.0, transcript=[])
+    monkeypatch.setattr(graph, "measure_signals", lambda video, settings: perception)
+    monkeypatch.setattr(graph, "measure_transcript", transcribe)
+    return pipeline(), perception
+
+
+async def test_the_measure_node_adds_the_transcript_through_measure_transcript(monkeypatch):
+    seen = []
+
+    def add(perception, settings):
+        seen.append(perception)
+        return SimpleNamespace(speech=[], cuts=[], duration_s=600.0, transcript=["hello"])
+
+    pipe, perception = measure_pipeline(monkeypatch, add)
+    out = await pipe.measure({})
+    assert seen == [perception] and out["perception"].transcript == ["hello"]
+
+
+async def test_a_failed_transcript_never_stops_the_run(monkeypatch):
+    def boom(perception, settings):
+        raise PerceptionError("whisper crashed")
+
+    pipe, perception = measure_pipeline(monkeypatch, boom)
+    out = await pipe.measure({})
+    assert out["perception"] is perception and out["found"].candidates == []
 
 
 # ---- neighbours of an all-blocking scene ----------------------------------------------------

@@ -138,6 +138,11 @@ def test_a_capped_sweep_keeps_unknown_as_it_was():
     assert apply_sweep(scene(unknown=True), sweep(full=False)).unknown
 
 
+def test_a_sweep_that_dropped_a_tag_for_a_bad_citation_does_not_clear_unknown():
+    rec = sweep().model_copy(update={"dropped": [TagEvidence(tag=T.DEATH_GRIEF, frames=[], cue="")]})
+    assert apply_sweep(scene(unknown=True), rec).unknown
+
+
 def test_a_full_coverage_sweep_clears_unknown():
     out = apply_sweep(scene(unknown=True), sweep([T.ALCOHOL]))
     assert not out.unknown and out.safety_tags == [T.ALCOHOL]

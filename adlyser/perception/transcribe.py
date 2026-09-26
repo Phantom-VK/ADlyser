@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from adlyser.cache import unique_tmp
 from adlyser.config import TranscribeConfig, get_settings
 from adlyser.errors import PerceptionError
 from adlyser.log import get_logger
@@ -79,7 +80,7 @@ def main() -> None:
     wav, speech_json, out = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
     speech = [SpeechSeg.model_validate(x) for x in json.loads(speech_json.read_text())]
     segments = transcribe(wav, get_settings().transcribe, speech)
-    tmp = out.with_name(out.name + ".tmp")
+    tmp = unique_tmp(out)
     tmp.write_text(json.dumps([s.model_dump(mode="json") for s in segments], ensure_ascii=False))
     tmp.replace(out)
 
