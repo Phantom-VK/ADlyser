@@ -1,10 +1,11 @@
 """Pull JPEG frames from the video for the vision model. Frames are cached on disk."""
 
+import math
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from adlyser.config import BoundaryConfig, FramesConfig, StretchConfig
+from adlyser.config import BoundaryConfig, FramesConfig, ReviewerConfig, StretchConfig
 from adlyser.errors import PerceptionError
 from adlyser.log import get_logger
 
@@ -21,6 +22,18 @@ def stretch_times(start: float, end: float, cfg: StretchConfig) -> list[float]:
     :return: frame times in order, all strictly inside the stretch.
     """
     n = min(cfg.max_frames, max(cfg.min_frames, round((end - start) / cfg.frame_interval_s)))
+    return [start + (end - start) * (i + 0.5) / n for i in range(n)]
+
+
+def sweep_times(start: float, end: float, cfg: ReviewerConfig) -> list[float]:
+    """Times of the safety-sweep frames across a WHOLE scene: about one per interval, capped.
+
+    :param start: scene start in seconds.
+    :param end: scene end in seconds.
+    :param cfg: sweep interval and frame cap.
+    :return: frame times in order, spread evenly and strictly inside the scene.
+    """
+    n = min(cfg.sweep_max_frames, max(1, math.ceil((end - start) / cfg.sweep_interval_s)))
     return [start + (end - start) * (i + 0.5) / n for i in range(n)]
 
 

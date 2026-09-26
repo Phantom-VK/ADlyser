@@ -1,7 +1,7 @@
 import pytest
 
-from adlyser.config import BoundaryConfig, StretchConfig
-from adlyser.perception.keyframes import boundary_times, stretch_times
+from adlyser.config import BoundaryConfig, ReviewerConfig, StretchConfig
+from adlyser.perception.keyframes import boundary_times, stretch_times, sweep_times
 
 CFG = StretchConfig(frame_interval_s=30, min_frames=3, max_frames=8, tool_rounds=2)
 
@@ -35,3 +35,19 @@ def test_boundary_frames_are_clamped_to_the_video():
     assert min(times) >= 0
     times = boundary_times(999.8, cfg, 1000.0)
     assert max(times) < 1000.0
+
+
+def test_sweep_frames_cover_a_whole_scene_at_about_one_per_interval():
+    cfg = ReviewerConfig(
+        sweep_interval_s=10, sweep_max_frames=24, tool_rounds=3, speech_window_s=15, max_loops=2
+    )
+    times = sweep_times(0, 100, cfg)
+    assert len(times) == 10 and times[0] < 10 and times[-1] > 90
+
+
+def test_sweep_frames_are_capped_and_never_empty():
+    cfg = ReviewerConfig(
+        sweep_interval_s=10, sweep_max_frames=24, tool_rounds=3, speech_window_s=15, max_loops=2
+    )
+    assert len(sweep_times(0, 3000, cfg)) == 24
+    assert len(sweep_times(50, 50.5, cfg)) == 1

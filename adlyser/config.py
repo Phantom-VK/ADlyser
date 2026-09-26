@@ -115,6 +115,31 @@ class ScenesConfig(BaseModel):
     min_confidence: float
 
 
+class CatalogueConfig(BaseModel):
+    """Where the raw brand catalogue lives."""
+
+    path: Path
+
+
+class MatcherConfig(BaseModel):
+    """BrandMatcher settings."""
+
+    embed_model: str
+    shortlist_k: int
+    top_k: int
+    min_fit: float
+
+
+class ReviewerConfig(BaseModel):
+    """BreakReviewer settings (safety sweep and veto loops)."""
+
+    sweep_interval_s: float
+    sweep_max_frames: int
+    tool_rounds: int
+    speech_window_s: float
+    max_loops: int
+
+
 class CreativesConfig(BaseModel):
     """Generated slate creatives (10 s title cards made with ffmpeg)."""
 
@@ -150,6 +175,9 @@ class Settings(BaseSettings):
     stretch: StretchConfig
     boundary: BoundaryConfig
     scenes: ScenesConfig
+    catalogue: CatalogueConfig
+    matcher: MatcherConfig
+    reviewer: ReviewerConfig
     creatives: CreativesConfig
     deepseek_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPSEEK_API_KEY")

@@ -6,6 +6,8 @@ from itertools import pairwise
 from adlyser.errors import AdlyserError
 from adlyser.schemas import Candidate, SafetyTag, Scene, Stretch, StretchAnalysis
 
+_EPS = 1e-6
+
 
 def make_stretches(candidates: list[Candidate], duration_s: float) -> list[Stretch]:
     """Cut the video at every candidate: the stretches are what the StretchAnalyst looks at.
@@ -71,3 +73,17 @@ def build_scenes(
             scenes.append(_merge(len(scenes), group, min_confidence))
             group = []
     return scenes
+
+
+def scenes_around(scenes: list[Scene], t: float) -> tuple[int, int]:
+    """Indices of the scene that ends at ``t`` and the scene that starts at ``t``.
+
+    :param scenes: scenes in time order.
+    :param t: a confirmed scene-change time.
+    :return: ``(before_index, after_index)``.
+    :raises AdlyserError: if ``t`` is not a scene boundary.
+    """
+    for before, after in pairwise(scenes):
+        if abs(before.end - t) < _EPS and abs(after.start - t) < _EPS:
+            return before.index, after.index
+    raise AdlyserError(f"{t} is not a scene boundary")

@@ -37,6 +37,86 @@ class StretchAnalysis(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class NormalisedBrand(BaseModel):
+    """CatalogueNormaliser output for one brand (the id is assigned by code)."""
+
+    name: str
+    category: str
+    tagline: str
+    description: str
+    target_contexts: list[str] = Field(default_factory=list)
+    negative_tags: list[SafetyTag] = Field(default_factory=list)
+    negative_contexts_raw: list[str] = Field(default_factory=list)
+
+
+class NormalisedCatalogue(BaseModel):
+    """CatalogueNormaliser output: every brand found in the input."""
+
+    brands: list[NormalisedBrand]
+
+
+class Brand(NormalisedBrand, frozen=True):
+    """A brand ready for matching. ``negative_tags`` drive the hard block; the raw text is kept for review."""
+
+    id: str
+
+
+class Blocked(BaseModel, frozen=True):
+    """A brand that may not play at this break, and why (taxonomy tags, or ``unknown_scene``)."""
+
+    brand_id: str
+    tags: list[str]
+
+
+class ShortlistEntry(BaseModel):
+    """One shortlisted brand: embedding similarity, then the rerank fit and reason."""
+
+    brand_id: str
+    name: str
+    similarity: float
+    fit: float | None = None
+    reason: str = ""
+
+
+class BrandChoice(BaseModel):
+    """BrandMatcher result for one break: the chosen brand (None = promo slot) and the evidence."""
+
+    brand_id: str | None
+    shortlist: list[ShortlistEntry]
+    blocked: list[Blocked]
+    reason: str
+
+
+class RerankEntry(BaseModel):
+    """One brand's fit for a scene, from the BrandMatcher rerank."""
+
+    brand_id: str
+    fit: float = Field(ge=0, le=1)
+    reason: str
+
+
+class Rerank(BaseModel):
+    """BrandMatcher rerank output: best fit first."""
+
+    ranked: list[RerankEntry]
+
+
+class SweepResult(BaseModel):
+    """Safety sweep output: every safety tag seen across the frames of one scene."""
+
+    safety_tags: list[SafetyTag] = Field(default_factory=list)
+    evidence: str
+    confidence: float = Field(ge=0, le=1)
+
+
+class ReviewVerdict(BaseModel):
+    """BreakReviewer output: approve the break with its brand, or veto it and say what to try next."""
+
+    decision: Literal["approve", "veto"]
+    reason: str
+    retry: Literal["next_brand", "next_candidate", "promo"] | None = None
+
+
 class BoundaryVerdict(BaseModel):
     """BoundaryJudge output: is this candidate pause a real scene change, and how good a break?"""
 
@@ -168,18 +248,93 @@ class AdBreakSpec(BaseModel, frozen=True):
     creative: Creative
 
 
-class Analysis(BaseModel):
-    """Everything the AI pipeline decided about one video (Phase 2: up to the chosen breaks)."""
+class BreakPlan(BaseModel):
+    """One planned break as it moves through matching, sweep and review."""
+
+    candidate: Candidate
+    break_score: float
+    before: int
+    after: int
+    status: Literal[
+        "needs_brand", "needs_review", "approved", "promo", "dropped", "retry_brand", "retry_candidate"
+    ]
+    choice: BrandChoice | None = None
+    review: ReviewVerdict | None = None
+    review_trace: list[dict[str, Any]] = Field(default_factory=list)
+    vetoed_brands: list[str] = Field(default_factory=list)
+    history: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+class CandidateRecord(BaseModel):
+    """debug.json: what happened to one candidate pause, and why."""
+
+    t: float
+    silence_s: float
+    kind: str
+    is_scene_change: bool
+    break_score: float
+    boundary_reason: str
+    status: Literal["not_scene_change", "below_min_score", "pacing_rejected", "selected", "vetoed"]
+    reason: str
+
+
+class StretchRecord(BaseModel):
+    """debug.json: one stretch, its analysis and the tool calls the analyst made."""
+
+    stretch: Stretch
+    analysis: StretchAnalysis
+    tool_trace: list[dict[str, Any]]
+
+
+class SceneRecord(BaseModel):
+    """debug.json: a scene and the tags the safety sweep added to it."""
+
+    scene: Scene
+    sweep_added: list[SafetyTag]
+    sweep_evidence: str = ""
+    sweep_confidence: float | None = None
+
+
+class BlockedRecord(BaseModel):
+    """debug.json: a blocked brand with the tag that blocked it."""
+
+    brand_id: str
+    name: str
+    tags: list[str]
+
+
+class BreakRecord(BaseModel):
+    """debug.json: a break in the manifest (or dropped) with the whole decision trail."""
+
+    break_id: str | None
+    t: float
+    break_score: float
+    outcome: Literal["brand", "promo", "dropped"]
+    brand_id: str | None
+    brand_name: str | None
+    before_scene: int
+    after_scene: int
+    shortlist: list[ShortlistEntry]
+    blocked: list[BlockedRecord]
+    sweep_added: dict[str, list[SafetyTag]]
+    review: ReviewVerdict | None
+    review_trace: list[dict[str, Any]]
+    history: list[str]
+    reason: str
+
+
+class DebugReport(BaseModel):
+    """debug.json: every decision with its evidence."""
 
     video: str
     duration_s: float
     funnel: Funnel
-    candidates: list[Candidate]
-    stretches: list[Stretch]
-    analyses: list[StretchAnalysis]
-    stretch_traces: list[list[dict[str, Any]]]
-    verdicts: list[BoundaryVerdict]
-    scenes: list[Scene]
-    breaks: list[BreakOption]
+    candidates: list[CandidateRecord]
+    stretches: list[StretchRecord]
+    scenes: list[SceneRecord]
+    breaks: list[BreakRecord]
+    brands: list[Brand]
     llm_stats: dict[str, dict[str, int]]
+    loops: int
     wall_s: float

@@ -72,6 +72,22 @@ boundary:
 scenes:
   min_confidence: 0.5   # below this a stretch is "unknown" and blocks every brand
 
+catalogue:
+  path: catalogue/brands.json
+
+matcher:
+  embed_model: BAAI/bge-m3
+  shortlist_k: 5   # embedding shortlist size
+  top_k: 3         # kept after the rerank
+  min_fit: 0.3     # below this the slot is a promo, not a brand
+
+reviewer:
+  sweep_interval_s: 10   # one sweep frame per this many seconds of the scene
+  sweep_max_frames: 24
+  tool_rounds: 3
+  speech_window_s: 15
+  max_loops: 2           # veto loops back to the matcher or the pacing solver
+
 creatives:
   duration_s: 10
   width: 960

@@ -3,7 +3,7 @@ from itertools import pairwise
 import pytest
 
 from adlyser.errors import AdlyserError
-from adlyser.rules.scenes import build_scenes, make_stretches
+from adlyser.rules.scenes import build_scenes, make_stretches, scenes_around
 from adlyser.schemas import Candidate, SafetyTag, Stretch, StretchAnalysis
 
 MIN_CONF = 0.5
@@ -131,3 +131,17 @@ def test_mismatched_inputs_raise():
         build_scenes(st, [analysis()], [False], MIN_CONF)
     with pytest.raises(AdlyserError):
         build_scenes(st, [analysis()] * 2, [], MIN_CONF)
+
+
+def test_scenes_around_a_confirmed_change():
+    st = stretches(0, 300, 600, 1000)
+    scenes = build_scenes(st, [analysis()] * 3, [True, True], MIN_CONF)
+    assert scenes_around(scenes, 300) == (0, 1)
+    assert scenes_around(scenes, 600) == (1, 2)
+
+
+def test_scenes_around_a_non_boundary_raises():
+    st = stretches(0, 300, 600)
+    scenes = build_scenes(st, [analysis()] * 2, [False], MIN_CONF)
+    with pytest.raises(AdlyserError):
+        scenes_around(scenes, 300)
