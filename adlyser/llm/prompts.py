@@ -4,7 +4,7 @@ import json
 
 from pydantic import BaseModel
 
-from adlyser.schemas import Candidate, SafetyTag, Stretch, TranscriptSeg
+from adlyser.schemas import Brand, Candidate, SafetyTag, Scene, SpeechSeg, Stretch, TranscriptSeg
 
 _TAXONOMY = ", ".join(t.value for t in SafetyTag)
 
@@ -38,6 +38,52 @@ A transcript may be unavailable; judge from the frames and the summaries then.
 - break_score: 0 to 1. High = a natural place to pause (a scene has clearly closed, or a
   cliff-hanger beat). Low = the scene is mid-action or mid-conversation.
 - reason: one short sentence.
+- Reply with JSON only."""
+
+
+CATALOGUE_NORMALISER = f"""You convert a brand catalogue, in any format (JSON, CSV or free text),
+into a fixed schema. Every brand in the input must appear exactly once in the output.
+
+- name, category, tagline, description: copy or condense from the input.
+- target_contexts: short phrases for the moments and activities where the brand fits.
+- negative_contexts_raw: the input's own words about when the brand must NOT appear, split into
+  short phrases. Copy them faithfully; never drop one.
+- negative_tags: map EVERY negative context to the tags of this fixed list that it implies, and use
+  only these exact values: {_TAXONOMY}. Be inclusive: when a phrase could imply several tags,
+  include them all (e.g. "illness" -> medical_illness; "mourning" -> death_grief, funeral_ritual).
+- Reply with JSON only."""
+
+BRAND_RERANK = """You choose the best brand to advertise in a break in a Bengali TV drama.
+You receive the scene the viewer just watched (what happens, its activity and mood) and a few
+candidate brands that are already known to be safe for this break.
+
+- Rank the brands from best to worst contextual fit with what the viewer just watched.
+- fit: 0 to 1. Use a low value for a brand that does not fit the scene.
+- reason: one short sentence that refers to the scene.
+- Only use the brand ids you were given. Reply with JSON only."""
+
+SAFETY_SWEEP = f"""You are a brand-safety inspector for a Bengali TV drama. You receive frames spread
+across ONE whole scene (in time order). List EVERY tag from this fixed list that applies to ANYTHING
+visible in ANY frame, even briefly (a funeral or hospital insert of a few seconds still counts).
+Only use these exact values: {_TAXONOMY}.
+
+- The scene was already tagged by an earlier pass; you may be shown its current tags. Report what you
+  see, including tags already present. Never remove or argue against a tag.
+- confidence: 0 to 1. Use a low value if the frames are dark, ambiguous or you are guessing.
+- evidence: one short sentence naming what you saw and roughly where.
+- Reply with JSON only."""
+
+BREAK_REVIEWER = """You are the final reviewer of one planned ad break in a Bengali TV drama.
+You receive: frames around the break, the summaries and safety tags of the scene before and after,
+the length of the silence, the speech map around the break, the chosen brand and, in the brand's own
+words, when it must NOT appear.
+
+- approve only if the break is a natural pause and the brand would not be insensitive here.
+- veto if the moment feels mid-scene or mid-conversation, or if anything in the frames or summaries
+  clashes with the brand's own words about when it must not appear.
+- On a veto, retry says what to try next: next_brand (another brand may fit), next_candidate (this
+  moment is a poor break for any ad) or promo (show a neutral house promo instead of a brand).
+- You may call the tools to look closer at frames or read the speech map before you decide.
 - Reply with JSON only."""
 
 
@@ -106,3 +152,43 @@ def boundary_text(cand: Candidate, before: str, after: str, transcript: str) -> 
         f"Silence around the cut: {cand.silence_s:.1f} s. Cut type: {cand.kind}.\n"
         f"Before: {before}\nAfter: {after}\nTranscript: {transcript}"
     )
+
+
+def brand_lines(brands: list[Brand]) -> str:
+    """One line per brand for the rerank prompt.
+
+    :param brands: the shortlisted brands.
+    :return: text with id, name, category, description and target contexts.
+    """
+    return "\n".join(
+        f"- id={b.id} | {b.name} ({b.category}): {b.description} Fits: {', '.join(b.target_contexts)}"
+        for b in brands
+    )
+
+
+def scene_line(scene: Scene) -> str:
+    """A short description of a scene for prompts.
+
+    :param scene: the scene.
+    :return: time range, activity, summary and tags.
+    """
+    tags = ", ".join(t.value for t in scene.safety_tags) or "none"
+    return (
+        f"{clock(scene.start)}-{clock(scene.end)} | activity: {scene.dominant_activity} | "
+        f"{scene.summary} | safety tags: {tags}{' | UNKNOWN' if scene.unknown else ''}"
+    )
+
+
+def speech_text(speech: list[SpeechSeg], t0: float, t1: float) -> str:
+    """The speech map inside ``[t0, t1]`` as text, for the reviewer and its ``speech_map`` tool.
+
+    :param speech: all speech spans.
+    :param t0: window start in seconds.
+    :param t1: window end in seconds.
+    :return: the clipped spans, or a note that there is no speech.
+    """
+    spans = [(max(s.start, t0), min(s.end, t1)) for s in speech if s.end > t0 and s.start < t1]
+    if not spans:
+        return f"No speech between {clock(t0)} and {clock(t1)}."
+    body = "; ".join(f"{a:.1f}s-{b:.1f}s" for a, b in spans)
+    return f"Speech between {clock(t0)} and {clock(t1)}: {body}."

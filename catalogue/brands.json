@@ -1,0 +1,66 @@
+[
+  {
+    "brand": "Annapurna Rasoi",
+    "sector": "Packaged Bengali ready meals",
+    "slogan": "Ghorer swad, ek minute-e",
+    "about": "Ready-to-heat Bengali home meals: khichuri, luchi-torkari, shukto. Sold in every neighbourhood grocery.",
+    "ideal_moments": "cooking, family meals, hungry evenings, people coming home, festive gatherings",
+    "never_show_after": "death, funeral, illness"
+  },
+  {
+    "brand": "Shubho Chai",
+    "sector": "Tea",
+    "slogan": "Ek cup shantir sathe",
+    "about": "Loose-leaf and tea-bag blends from small Darjeeling and Dooars gardens.",
+    "ideal_moments": "relaxed conversation, morning routines, adda with friends, rainy days, waiting, travel breaks",
+    "never_show_after": "funerals and mourning, scenes of violence, heated fights"
+  },
+  {
+    "brand": "Nirapod Bima",
+    "sector": "Family insurance",
+    "slogan": "Apnar poribar, amader dayitwo",
+    "about": "Term life and health cover for middle-class families.",
+    "ideal_moments": "family time, home life, parents and children, planning for the future",
+    "never_show_after": "graphic violence, abuse, death of a character (would feel like exploiting grief)"
+  },
+  {
+    "brand": "Jhilmil Jewels",
+    "sector": "Gold and diamond jewellery",
+    "slogan": "Bhalobasar jhilmil",
+    "about": "Wedding and festival jewellery. Traditional Bengali designs.",
+    "ideal_moments": "weddings, romance, celebrations, festivals, shopping, dressing up",
+    "never_show_after": "death or mourning, poverty or hunger, violence, disasters"
+  },
+  {
+    "brand": "Pathik Rides",
+    "sector": "Cab and travel app",
+    "slogan": "Jetheke khushi, pouche jaan",
+    "about": "Book a cab or an outstation trip in two taps.",
+    "ideal_moments": "travel, road trips, commuting, arriving in a new city, sightseeing, holidays",
+    "never_show_after": "road accidents and injuries, disasters, kidnapping and crime scenes"
+  },
+  {
+    "brand": "Sonar Tori Pay",
+    "sector": "Mobile payments",
+    "slogan": "Taka pathano, ekdom sohoj",
+    "about": "UPI-based payments and bill splitting for everyday shopping.",
+    "ideal_moments": "shopping, markets, restaurants, paying bills, young people, office life",
+    "never_show_after": "theft, crime, weapons, violence, extreme poverty"
+  },
+  {
+    "brand": "Sukh Nidra Mattress",
+    "sector": "Mattresses and bedding",
+    "slogan": "Bhalo ghum, bhalo din",
+    "about": "Orthopaedic foam mattresses for tired backs.",
+    "ideal_moments": "night scenes, tired characters, quiet home moments, weekends, resting",
+    "never_show_after": "serious illness or hospital scenes, death, accidents (do not joke about rest and recovery)"
+  },
+  {
+    "brand": "Mishti Mukh Sweets",
+    "sector": "Traditional sweets",
+    "slogan": "Mishti mukhe shuru holo shob",
+    "about": "Sandesh, rosogolla and mishti doi made fresh daily.",
+    "ideal_moments": "celebrations, festivals, good news, weddings, family gatherings, visitors arriving",
+    "never_show_after": "death and mourning, funerals, illness (diabetes), smoking or drinking, arguments"
+  }
+]
