@@ -240,3 +240,39 @@ def test_a_brand_with_no_negatives_of_its_own_is_blocked_by_the_default_floor():
     (brand_,) = to_brands(NormalisedCatalogue(brands=[bare]), [T.DEATH_GRIEF, T.FUNERAL_RITUAL])
     assert blocking_tags(brand_, scene({T.DEATH_GRIEF}), scene()) == ["death_grief"]
     assert blocking_tags(brand_, scene({T.ALCOHOL}), scene()) == []  # the floor adds no other block
+
+
+def test_a_cue_that_says_nothing_is_visible_is_dropped_and_logged():
+    result = SweepResult(
+        safety_tags=[ev(T.VIOLENCE, [2], "no explicit violence visible")],
+        unsure_tags=[
+            ev(T.SEXUAL_CONTENT, [3], "tone unclear"),
+            ev(T.STRONG_ARGUMENT, [4], "nothing shows anger"),
+            ev(T.MEDICAL_ILLNESS, [5], "a bed with a drip stand"),
+        ],
+        evidence="e",
+    )
+    seen, unsure, dropped = validate_sweep(result, 10)
+    assert seen == [] and [e.tag for e in unsure] == [T.MEDICAL_ILLNESS]
+    assert {d.tag for d in dropped} == {T.VIOLENCE, T.SEXUAL_CONTENT, T.STRONG_ARGUMENT}
+
+
+def test_a_real_cue_that_merely_contains_a_negation_word_is_kept():
+    result = SweepResult(
+        unsure_tags=[
+            ev(T.ALCOHOL, [1], "a man holds a bottle, not clearly a label"),
+            ev(T.VIOLENCE, [2], "a raised fist"),
+        ],
+        evidence="e",
+    )
+    _, unsure, dropped = validate_sweep(result, 5)
+    assert [e.tag for e in unsure] == [T.ALCOHOL, T.VIOLENCE] and dropped == []
+
+
+def test_a_dropped_negative_cue_keeps_an_unknown_scene_unknown():
+    result = SweepResult(unsure_tags=[ev(T.SEXUAL_CONTENT, [1], "no explicit content visible")], evidence="e")
+    _, _, dropped = validate_sweep(result, 5)
+    record = SweepRecord(
+        safety_tags=[], unsure_tags=[], evidence="e", ok=True, full_coverage=True, frames=5, dropped=dropped
+    )
+    assert apply_sweep(scene(unknown=True), record).unknown

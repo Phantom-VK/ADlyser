@@ -74,6 +74,8 @@ def build_debug(
     brands: list[Brand],
     break_ids: dict[float, str],
     min_break_score: float,
+    intro_end: float = 0.0,
+    outro_start: float | None = None,
     llm_stats: dict[str, dict[str, int]],
     loops: int,
     wall_s: float,
@@ -96,6 +98,8 @@ def build_debug(
     :param brands: the catalogue.
     :param break_ids: manifest break id by candidate time.
     :param min_break_score: pacing threshold, for the candidate status.
+    :param intro_end: where the opening titles end (0 = none).
+    :param outro_start: where the closing titles start (None = none).
     :param llm_stats: call statistics by prompt.
     :param loops: veto loops used.
     :param wall_s: run time in seconds.
@@ -165,4 +169,6 @@ def build_debug(
         loops=loops,
         wall_s=wall_s,
         min_break_score=min_break_score,
+        intro_end=intro_end,
+        outro_start=outro_start,
     )

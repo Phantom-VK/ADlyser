@@ -12,7 +12,9 @@ from pathlib import Path
 
 from groq import Groq
 
-VIDEO = Path("/home/vikramaditya/Downloads/hackathon_contents-20260926T060049Z-1-001/hackathon_contents/feluda.mp4")
+VIDEO = Path(
+    "/home/vikramaditya/Downloads/hackathon_contents-20260926T060049Z-1-001/hackathon_contents/feluda.mp4"
+)
 START_S, END_S = 300, 540
 MODELS = ("whisper-large-v3-turbo", "whisper-large-v3")
 OUT = Path("data/groq_test")

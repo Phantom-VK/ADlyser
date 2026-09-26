@@ -16,7 +16,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from adlyser.agents.boundary_judge import judge_boundary
-from adlyser.agents.brand_matcher import match_brand
+from adlyser.agents.brand_matcher import match_brand, spread_brands
 from adlyser.agents.catalogue import normalise_catalogue, read_catalogue
 from adlyser.agents.reviewer import review_break, sweep_scene
 from adlyser.agents.stretch_analyst import analyse_stretch
@@ -28,9 +28,10 @@ from adlyser.emit.vmap import build_vmap
 from adlyser.errors import PerceptionError
 from adlyser.llm.client import make_clients
 from adlyser.llm.embed import Embedder
+from adlyser.llm.prompts import clock
 from adlyser.log import get_logger
 from adlyser.perception.measure import measure_signals, measure_transcript
-from adlyser.rules.candidates import find_candidates
+from adlyser.rules.candidates import break_window, find_candidates, title_bounds
 from adlyser.rules.pacing import can_add, select_breaks
 from adlyser.rules.safety import apply_sweep, blocking_scenes, blocking_tags
 from adlyser.rules.scenes import build_scenes, make_stretches, scenes_around
@@ -62,6 +63,8 @@ class State(TypedDict, total=False):
     found: CandidateResult
     stretches: list[Stretch]
     analyses: list[StretchAnalysis]
+    intro_end: float
+    outro_start: float | None
     traces: list[list[dict[str, Any]]]
     verdicts: list[BoundaryVerdict]
     base_scenes: list[Scene]
@@ -89,6 +92,19 @@ def route_after_settle(state: State) -> str:
     if any(p.status == "retry_brand" for p in state["plans"]):
         return "sweep"
     return "finalize"
+
+
+def _outside(t: float, earliest: float, intro_end: float, outro_start: float | None) -> BoundaryVerdict:
+    """The verdict of a candidate the break window rules out: not a scene change, with the reason."""
+    if t < earliest:
+        why = (
+            f"inside the opening titles window (titles end at {clock(intro_end)})"
+            if intro_end
+            else "too early"
+        )
+    else:
+        why = f"inside the closing titles window (titles start at {clock(outro_start or 0)})"
+    return BoundaryVerdict(is_scene_change=False, break_score=0.0, reason=why)
 
 
 class Pipeline:
@@ -182,20 +198,36 @@ class Pipeline:
                 for s in state["stretches"]
             ],
         )
-        return {"analyses": [a for a, _ in results], "traces": [t for _, t in results]}
+        analyses = [a for a, _ in results]
+        intro_end, outro_start = title_bounds(
+            state["stretches"], analyses, p.duration_s, self.settings.candidates
+        )
+        return {"analyses": analyses, "traces": [t for _, t in results], "intro_end": intro_end,
+                "outro_start": outro_start}  # fmt: skip
 
     async def boundaries(self, state: State) -> State:
-        """BoundaryJudge on every candidate, in parallel."""
+        """BoundaryJudge on every candidate inside the break window, in parallel.
+
+        The window starts after the opening titles and ends before the closing titles (the analyst marked
+        them). A candidate outside it is not judged: it counts as no scene change, so its stretches merge.
+        """
         p, analyses = state["perception"], state["analyses"]
-        verdicts = await self._gather("boundaries", "Judging boundary", [
+        intro_end, outro_start = state["intro_end"], state["outro_start"]
+        earliest, latest = break_window(p.duration_s, self.settings.candidates, intro_end, outro_start)
+        cands = state["found"].candidates
+        inside = [i for i, c in enumerate(cands) if earliest <= c.t <= latest]
+        judged = await self._gather("boundaries", "Judging boundary", [
                 judge_boundary(
-                    self.vision, self.video, self.frames_dir, c, analyses[i], analyses[i + 1],
+                    self.vision, self.video, self.frames_dir, cands[i], analyses[i], analyses[i + 1],
                     p.transcript, p.duration_s, self.settings,
                 )
-                for i, c in enumerate(state["found"].candidates)
+                for i in inside
             ]
         )  # fmt: skip
-        return {"verdicts": list(verdicts)}
+        by_index = dict(zip(inside, judged, strict=True))
+        verdicts = [by_index[i] if i in by_index else _outside(c.t, earliest, intro_end, outro_start)
+                    for i, c in enumerate(cands)]  # fmt: skip
+        return {"verdicts": verdicts}
 
     async def scenes(self, state: State) -> State:
         """Merge stretches into scenes and list the confirmed scene changes."""
@@ -265,24 +297,32 @@ class Pipeline:
         """BrandMatcher (reranks run in parallel across breaks). The hard block runs inside it."""
         scenes, brands = state["scenes"], state["brands"]
         plans = list(state["plans"])
-        todo = [i for i, p in enumerate(plans) if p.status in ("needs_brand", "retry_brand")]
+        todo = sorted(
+            (i for i, p in enumerate(plans) if p.status in ("needs_brand", "retry_brand")),
+            key=lambda i: plans[i].candidate.t,
+        )
         choices = await self._gather("match", "Matching brands for break", [
                 match_brand(self.embedder, self.text, brands, scenes[plans[i].before], scenes[plans[i].after],
                             set(plans[i].vetoed_brands), self.settings.matcher)
                 for i in todo
             ]
         )  # fmt: skip
+        used: dict[str, int] = {}
+        for p in plans:  # brands other breaks already carry count toward the cap
+            if p.status in ("needs_review", "approved") and p.choice is not None and p.choice.brand_id:
+                used[p.choice.brand_id] = used.get(p.choice.brand_id, 0) + 1
         names = {b.id: b.name for b in brands}
-        for i, choice in zip(todo, choices, strict=True):
+        for i, (choice, cap_note) in zip(
+            todo, spread_brands(choices, used, self.settings.matcher), strict=True
+        ):
             p = plans[i]
             if choice.kind == "brand":
-                note, status = (
-                    f"matched {names[choice.brand_id]} (fit {choice.shortlist[0].fit:.2f})",
-                    "needs_review",
-                )
+                fit = next(e.fit for e in choice.shortlist if e.brand_id == choice.brand_id)
+                note, status = f"matched {names[choice.brand_id]} (fit {fit:.2f})", "needs_review"
             else:  # blocked, or no brand fits well: the same treatment (next-best break, promo as a last resort)
                 note, status = f"no brand for this break: {choice.reason}", "blocked"
-            plans[i] = p.model_copy(update={"choice": choice, "status": status, "history": [*p.history, note],
+            notes = [note, cap_note] if cap_note else [note]
+            plans[i] = p.model_copy(update={"choice": choice, "status": status, "history": [*p.history, *notes],
                                             "reason": note})  # fmt: skip
         return {"plans": plans}
 
@@ -435,6 +475,7 @@ class Pipeline:
             analyses=state["analyses"], traces=state["traces"], base_scenes=state["base_scenes"],
             scenes=state["scenes"], sweeps=state["sweeps"], plans=state["plans"], excluded_reasons=state["excluded_reasons"],
             brands=state["brands"], break_ids=break_ids, min_break_score=st.pacing.min_break_score,
+            intro_end=state["intro_end"], outro_start=state["outro_start"],
             llm_stats=stats, loops=state["loops"], wall_s=round(time.perf_counter() - self.started, 1),
         )  # fmt: skip
         vmap = build_vmap(specs)

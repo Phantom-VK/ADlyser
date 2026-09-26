@@ -80,6 +80,8 @@ class CandidateConfig(BaseModel):
     max_candidates: int
     allow_long_silence_without_cut: bool
     long_silence_s: float
+    titles_scan_fraction: float  # a titles stretch counts if it starts in this fraction of the video ...
+    titles_max_s: float  # ... and at most this many seconds from the start (or the end)
 
 
 class PacingConfig(BaseModel):
@@ -148,6 +150,7 @@ class MatcherConfig(BaseModel):
     shortlist_k: int
     top_k: int
     min_fit: float
+    max_per_brand: int  # times one brand may run in an episode while another good fit exists
 
 
 class ReviewerConfig(BaseModel):

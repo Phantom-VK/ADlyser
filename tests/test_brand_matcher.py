@@ -2,11 +2,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from adlyser.agents.brand_matcher import match_brand
+from adlyser.agents.brand_matcher import match_brand, spread_brands
 from adlyser.config import MatcherConfig
-from adlyser.schemas import Brand, Rerank, SafetyTag, Scene
+from adlyser.schemas import Brand, BrandChoice, Rerank, SafetyTag, Scene, ShortlistEntry
 
-CFG = MatcherConfig(embed_model="x", shortlist_k=3, top_k=2, min_fit=0.3)
+CFG = MatcherConfig(embed_model="x", shortlist_k=3, top_k=2, min_fit=0.3, max_per_brand=1)
 T = SafetyTag
 
 
@@ -165,3 +165,51 @@ async def test_a_failed_rerank_is_no_fit_and_cosine_similarity_is_never_used_as_
     out = await match_brand(KeywordEmbedder(), FakeText(None), ALL, scene("travel"), scene("x"), set(), CFG)
     assert out.brand_id is None and out.kind == "no_fit" and "rerank" in out.reason
     assert out.shortlist and all(e.fit is None for e in out.shortlist)  # the trace still shows the shortlist
+
+
+# ---- frequency cap ----------------------------------------------------------
+
+
+def picked(*fits):
+    """A brand choice whose shortlist has brands a, b, c ... with these fits (best first); the first is chosen."""
+    entries = [
+        ShortlistEntry(brand_id=name, name=name.upper(), similarity=0.5, fit=fit, reason="r")
+        for name, fit in zip("abcd", fits, strict=False)
+    ]
+    return BrandChoice(
+        kind="brand", brand_id=entries[0].brand_id, shortlist=entries, blocked=[], reason="best fit"
+    )
+
+
+def test_two_breaks_with_the_same_top_brand_give_the_second_the_runner_up():
+    out = spread_brands([picked(0.9, 0.6), picked(0.8, 0.7)], {}, CFG)
+    assert [c.brand_id for c, _ in out] == ["a", "b"]
+    assert out[0][1] == "" and "A" in out[1][1] and "runner-up" in out[1][1]
+
+
+def test_a_repeat_beats_a_promo_when_no_other_brand_fits_well_enough():
+    out = spread_brands([picked(0.9, 0.2), picked(0.8, 0.1)], {}, CFG)
+    assert [c.brand_id for c, _ in out] == ["a", "a"]
+    assert out[1][1] == "repeat allowed: no alternative"
+
+
+def test_a_repeat_is_allowed_when_the_shortlist_has_only_the_one_brand():
+    out = spread_brands([picked(0.9), picked(0.9)], {}, CFG)
+    assert [c.brand_id for c, _ in out] == ["a", "a"] and out[1][1] == "repeat allowed: no alternative"
+
+
+def test_brands_used_by_breaks_already_placed_count_and_the_cap_is_configurable():
+    out = spread_brands([picked(0.9, 0.6)], {"a": 1}, CFG)
+    assert out[0][0].brand_id == "b"
+    twice = CFG.model_copy(update={"max_per_brand": 2})
+    assert spread_brands([picked(0.9, 0.6)], {"a": 1}, twice)[0][0].brand_id == "a"
+
+
+def test_the_runner_up_must_itself_be_under_the_cap():
+    out = spread_brands([picked(0.9, 0.8, 0.7)], {"a": 1, "b": 1}, CFG)
+    assert out[0][0].brand_id == "c"
+
+
+def test_choices_without_a_brand_pass_through_unchanged():
+    none = BrandChoice(kind="blocked", brand_id=None, shortlist=[], blocked=[], reason="x")
+    assert spread_brands([none, picked(0.9)], {}, CFG)[0][0] is none

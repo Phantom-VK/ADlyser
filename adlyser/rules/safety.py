@@ -1,10 +1,20 @@
 """The hard safety block. Pure functions: no I/O, no LLM. A missing ad is never a violation."""
 
+import re
 from collections.abc import Iterable
 
 from adlyser.schemas import Blocked, Brand, SafetyTag, Scene, SweepRecord, SweepResult, TagEvidence
 
 UNKNOWN_SCENE = "unknown_scene"
+
+# A cue that says what is NOT visible, or that the frames are unclear, is not evidence of anything.
+_NEGATIVE_CUE = re.compile(
+    r"^\W*(no|not|none|nothing|without)\b"  # "no explicit content", "nothing shows anger"
+    r"|\b(no|not|nothing|none)\b[^.;,]*\b(visible|shown|seen|evident|apparent|present|depicted)\b"
+    r"|\b(tone|mood|context|content|situation)\b[^.;,]*\b(unclear|uncertain|ambiguous)\b"
+    r"|\b(cannot|can't|unable to) (tell|see|determine)\b",
+    re.IGNORECASE,
+)
 
 
 def blocking_tags(brand: Brand, before: Scene, after: Scene) -> list[str]:
@@ -70,17 +80,19 @@ def apply_sweep(scene: Scene, sweep: SweepRecord) -> Scene:
 
 
 def _cited(item: TagEvidence, n_frames: int) -> bool:
-    """A tag counts only if it cites at least one frame and every cited frame exists (numbered from 1)."""
-    return bool(item.frames) and all(1 <= i <= n_frames for i in item.frames)
+    """A tag counts only if it cites real frames (numbered from 1) and its cue names something visible."""
+    frames_ok = bool(item.frames) and all(1 <= i <= n_frames for i in item.frames)
+    return frames_ok and not _NEGATIVE_CUE.search(item.cue)
 
 
 def validate_sweep(
     result: SweepResult, n_frames: int
 ) -> tuple[list[TagEvidence], list[TagEvidence], list[TagEvidence]]:
-    """Keep only sweep tags that cite real frames.
+    """Keep only sweep tags that cite real frames and a visible cue.
 
-    A tag with no frame citation, or with a frame number outside ``1..n_frames``, is dropped. A tag listed
-    as both seen and unsure is kept as seen.
+    A tag with no frame citation, a frame number outside ``1..n_frames``, or a cue that states nothing is
+    visible ("no explicit content", "tone unclear") is dropped. A tag listed as both seen and unsure is
+    kept as seen.
 
     :param result: the raw sweep output.
     :param n_frames: how many frames the sweep was given.
