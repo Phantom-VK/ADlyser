@@ -20,11 +20,23 @@ llm:
 
 transcribe:
   enabled: false   # optional context only; nothing downstream may require it
+  provider: groq   # groq = hosted whisper (GROQ_API_KEY in .env); local = faster-whisper
+  model: whisper-large-v3
+  language: bn
+  chunk_s: 600
+  chunk_min_s: 30
+  max_chunk_mb: 24
+  max_no_speech_prob: 0.5
+  min_overlap_s: 0.2
+  request_timeout_s: 120
+  retry_attempts: 3
+  retry_max_wait_s: 3900
+  retry_default_wait_s: 60
+  # local provider only
   clip_merge_gap_s: 1.0
   model_size: small
   device: cpu
   compute_type: int8
-  language: bn
   beam_size: 1
 
 vad:

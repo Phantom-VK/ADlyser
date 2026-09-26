@@ -126,6 +126,13 @@ words, when it must NOT appear.
 - Reply with JSON only."""
 
 
+# Added to a user message only when a transcript exists, so runs without one keep their cached answers.
+TRANSCRIPT_NOTE = (
+    "The transcript is a noisy auto transcript, words may be wrong; use only as a hint. It may add "
+    "evidence for a safety tag, but never remove or clear one, and never raise your confidence above "
+    "what the frames show."
+)
+
 FIX_JSON = (
     "Your previous reply was not valid JSON for the schema. Reply again with only the corrected JSON object."
 )
@@ -176,9 +183,10 @@ def stretch_text(stretch: Stretch, times: list[float], transcript: str, with_sec
     """
     stamps = ", ".join(clock(t) for t in times)
     span = f" ({stretch.start:.0f}s to {stretch.end:.0f}s)" if with_seconds else ""
+    note = "" if transcript == "unavailable" else f"\n{TRANSCRIPT_NOTE}"
     return (
         f"Stretch {clock(stretch.start)} to {clock(stretch.end)}{span}. "
-        f"{len(times)} frames in time order, taken at {stamps}.\nTranscript: {transcript}"
+        f"{len(times)} frames in time order, taken at {stamps}.{note}\nTranscript: {transcript}"
     )
 
 
@@ -191,10 +199,11 @@ def boundary_text(cand: Candidate, before: str, after: str, transcript: str) -> 
     :param transcript: transcript around the cut, or ``unavailable``.
     :return: the text part of the user message.
     """
+    note = "" if transcript == "unavailable" else f"{TRANSCRIPT_NOTE}\n"
     return (
         f"Cut at {clock(cand.t)}. Frames: 2 before, then 2 after.\n"
         f"Silence around the cut: {cand.silence_s:.1f} s. Cut type: {cand.kind}.\n"
-        f"Before: {before}\nAfter: {after}\nTranscript: {transcript}"
+        f"Before: {before}\nAfter: {after}\n{note}Transcript: {transcript}"
     )
 
 

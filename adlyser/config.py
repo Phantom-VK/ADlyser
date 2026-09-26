@@ -37,15 +37,28 @@ class LlmConfig(BaseModel):
 
 
 class TranscribeConfig(BaseModel):
-    """faster-whisper settings. Optional and off by default; never assume a GPU."""
+    """Transcript settings. Optional and off by default; never assume a GPU or a network."""
 
     enabled: bool = False
+    provider: Literal["local", "groq"] = "local"
+    # local (faster-whisper)
     clip_merge_gap_s: float = 1.0
     model_size: str = "small"
     device: str = "cpu"
     compute_type: str = "int8"
     language: str = "bn"
     beam_size: int = 1
+    # groq (hosted whisper)
+    model: str = "whisper-large-v3"
+    chunk_s: float = 600  # audio is sent in windows of about this length
+    chunk_min_s: float = 30  # a window over the size limit is halved, but never below this
+    max_chunk_mb: float = 24  # the API takes 25 MB per file
+    max_no_speech_prob: float = 0.5  # a segment the model itself thinks is not speech is dropped
+    min_overlap_s: float = 0.2  # a segment needs this much VAD speech under it, or it is a hallucination
+    request_timeout_s: float = 120
+    retry_attempts: int = 3  # tries when waiting out a rate limit (precompute only)
+    retry_max_wait_s: float = 3900  # never wait longer than this for one retry-after
+    retry_default_wait_s: float = 60  # when the 429 carries no retry-after
 
 
 class VadConfig(BaseModel):
@@ -207,6 +220,7 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("DEEPSEEK_API_KEY")
     )
     gemini_api_key: SecretStr | None = Field(default=None, validation_alias=AliasChoices("GEMINI_API_KEY"))
+    groq_api_key: SecretStr | None = Field(default=None, validation_alias=AliasChoices("GROQ_API_KEY"))
 
     @classmethod
     def settings_customise_sources(

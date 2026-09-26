@@ -22,6 +22,7 @@ from adlyser.log import get_logger
 from adlyser.perception.audio import extract_wav, probe_duration
 from adlyser.perception.cuts import detect_black, detect_hard_cuts
 from adlyser.perception.speech import detect_speech
+from adlyser.perception.transcribe import transcribe_with_groq
 from adlyser.schemas import Cut, Perception, SpeechSeg, TranscriptSeg
 
 log = get_logger(__name__)
@@ -118,15 +119,16 @@ def _transcribe_subprocess(wav: Path, speech: list[SpeechSeg]) -> list[Transcrip
         return [TranscriptSeg.model_validate(x) for x in json.loads(out.read_text())]
 
 
-def measure_transcript(perception: Perception, settings: Settings) -> Perception:
+def measure_transcript(perception: Perception, settings: Settings, wait_on_limit: bool = False) -> Perception:
     """Add the optional transcript (cached). Does nothing unless ``transcribe.enabled`` is true.
 
     Run this after candidates are written. Nothing downstream may require the result.
 
     :param perception: result of ``measure_signals``.
     :param settings: loaded settings.
+    :param wait_on_limit: groq only: wait out a rate limit and retry (precompute) instead of failing (live run).
     :return: ``perception`` unchanged when disabled, else a copy with the transcript and its timing.
-    :raises PerceptionError: if transcription fails.
+    :raises PerceptionError: if transcription fails (``RateLimited`` on a groq 429).
     """
     tcfg = settings.transcribe
     if not tcfg.enabled:
@@ -141,12 +143,17 @@ def measure_transcript(perception: Perception, settings: Settings) -> Perception
     )
     timings = dict(perception.timings_s)
     wav = wav_path(settings, perception.fingerprint)
-    transcript = _stage(
-        cache,
-        "transcript",
-        key,
-        TranscriptSeg,
-        lambda: _transcribe_subprocess(wav, perception.speech),
-        timings,
-    )
+    if tcfg.provider == "groq":
+
+        def run() -> list[TranscriptSeg]:
+            return transcribe_with_groq(
+                wav, perception.duration_s, tcfg, perception.speech, settings.api_key("groq"),
+                DiskCache(settings.cache_dir / "perception"), wait_on_limit,
+            )  # fmt: skip
+    else:
+
+        def run() -> list[TranscriptSeg]:
+            return _transcribe_subprocess(wav, perception.speech)
+
+    transcript = _stage(cache, "transcript", key, TranscriptSeg, run, timings)
     return perception.model_copy(update={"transcript": transcript, "timings_s": timings})
