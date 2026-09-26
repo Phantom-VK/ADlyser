@@ -117,3 +117,23 @@ class Perception(BaseModel):
     cuts: list[Cut]
     transcript: list[TranscriptSeg]
     timings_s: dict[str, float] = Field(default_factory=dict)
+
+
+class Creative(BaseModel, frozen=True):
+    """An ad creative that a break plays."""
+
+    ad_id: str
+    title: str
+    duration_s: float
+    media_url: str
+    width: int = 960
+    height: int = 540
+    mime_type: str = "video/mp4"
+
+
+class AdBreakSpec(BaseModel, frozen=True):
+    """One ad break to put in the VMAP manifest."""
+
+    break_id: str
+    time_s: float
+    creative: Creative

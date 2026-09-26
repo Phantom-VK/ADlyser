@@ -86,6 +86,17 @@ class PacingConfig(BaseModel):
     max_ad_load_pct: float
 
 
+class CreativesConfig(BaseModel):
+    """Generated slate creatives (10 s title cards made with ffmpeg)."""
+
+    duration_s: float
+    width: int
+    height: int
+    font: str
+    promo_title: str
+    promo_subtitle: str
+
+
 class Settings(BaseSettings):
     """Top-level settings."""
 
@@ -106,6 +117,7 @@ class Settings(BaseSettings):
     cuts: CutsConfig
     candidates: CandidateConfig
     pacing: PacingConfig
+    creatives: CreativesConfig
     deepseek_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPSEEK_API_KEY")
     )

@@ -54,3 +54,11 @@ pacing:
   min_gap_s: 300
   ad_duration_s: 30
   max_ad_load_pct: 12
+
+creatives:
+  duration_s: 10
+  width: 960
+  height: 540
+  font: DejaVu Sans   # any fontconfig family
+  promo_title: Your story continues shortly
+  promo_subtitle: Ad break
